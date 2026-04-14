@@ -3,7 +3,8 @@
     "allow": [
       "Bash(pip install:*)",
       "Bash(python -c ':*)",
-      "Bash(python -c \"from cli.app import run; print\\('OK'\\)\")"
+      "Bash(python -c \"from cli.app import run; print\\('OK'\\)\")",
+      "Bash(python -c \"from cli.app import run; print\\('CLI ready'\\)\")"
     ]
   }
 }
