@@ -1,404 +1,429 @@
 """
-Synapse - Multi-Agent System Demo
-Full-featured Streamlit UI with file upload, tool browser, and execution visualization
+Synapse UI - Streamlit Interface for Multi-Agent System
 """
 import streamlit as st
-import time
 import os
 import sys
 import json
 
-# Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from core.context import Context, ContextManager
-from core.planner import PlannerAgent
-from core.orchestrator import Orchestrator
-from core.a2a_bus import get_bus
-from mcp.tool_loader import register_all_tools
-from mcp.registry import get_registry
 
 # Page config
 st.set_page_config(
     page_title="Synapse - Multi-Agent System",
     page_icon="🧠",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-# Custom CSS
-st.markdown("""
-<style>
-    .tool-card {
-        background-color: #f0f2f6;
-        border-radius: 10px;
-        padding: 10px;
-        margin: 5px 0;
-    }
-    .success-box {
-        background-color: #d4edda;
-        border-radius: 5px;
-        padding: 10px;
-    }
-    .error-box {
-        background-color: #f8d7da;
-        border-radius: 5px;
-        padding: 10px;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# Initialize components
-@st.cache_resource
-def init_system():
-    """Initialize the agent system"""
-    register_all_tools()
-    return {
-        "context_manager": ContextManager(),
-        "planner": PlannerAgent(),
-        "orchestrator": Orchestrator(),
-        "bus": get_bus()
-    }
-
-# Check for API key
-api_configured = os.environ.get("GROQ_API_KEY") or os.environ.get("GEMINI_API_KEY")
-
-if not api_configured:
-    st.error("⚠️ No API key configured")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("### Option 1: Groq (Recommended)")
-        st.code("$env:GROQ_API_KEY='your-key-here'", language="powershell")
-        st.info("Get free key: https://console.groq.com")
-    
-    with col2:
-        st.markdown("### Option 2: Gemini")
-        st.code("$env:GEMINI_API_KEY='your-key-here'", language="powershell")
-        st.info("Get free key: https://aistudio.google.com/apikey")
-    
+# Check API key
+if not os.environ.get("GROQ_API_KEY"):
+    st.error("⚠️ GROQ_API_KEY not set!")
+    st.code('$env:GROQ_API_KEY="your-key-here"', language="powershell")
+    st.info("Get free key at: https://console.groq.com")
     st.stop()
 
-system = init_system()
-registry = get_registry()
-bus = get_bus()
+# Initialize Synapse (cached)
+@st.cache_resource
+def init_synapse():
+    from synapse import Synapse
+    return Synapse()
+
+try:
+    synapse = init_synapse()
+except Exception as e:
+    st.error(f"Failed to initialize Synapse: {e}")
+    st.stop()
 
 # Header
 st.title("🧠 Synapse")
-st.markdown("**Multi-Agent System with MCP + A2A Architecture**")
+st.caption("Multi-Agent System with A2A Communication & MCP Tools")
 
-# Show active provider
-provider = "Gemini" if os.environ.get("GEMINI_API_KEY") else "Groq"
-st.success(f"✅ Connected to {provider} LLM")
+# Sidebar - System Status
+with st.sidebar:
+    st.header("📊 System Status")
+    
+    status = synapse.get_status()
+    
+    # Agents
+    st.subheader("🤖 Agents")
+    for agent in status["agents"]:
+        icon = "🟢" if agent["running"] else "🔴"
+        st.markdown(f"{icon} **{agent['name']}**")
+        with st.expander(f"Tools: {len(agent['tools'])}"):
+            for tool in agent["tools"]:
+                st.text(f"  • {tool}")
+    
+    st.divider()
+    
+    # MCP Stats
+    st.subheader("🔧 MCP Server")
+    mcp = status["mcp"]
+    st.metric("Tools Registered", mcp["tools_registered"])
+    st.metric("Total Executions", mcp["total_executions"])
+    
+    st.divider()
+    
+    # A2A Bus
+    st.subheader("📬 A2A Message Bus")
+    bus = status["bus"]
+    st.metric("Messages Sent", bus["message_count"])
+    st.text(f"Agents: {', '.join(bus['registered_agents'])}")
 
-# Create tabs
-tab_main, tab_tools, tab_files, tab_settings = st.tabs(["🚀 Execute", "🔧 Tools", "📁 Files", "⚙️ Settings"])
+# Main tabs
+tab_execute, tab_messages, tab_architecture = st.tabs([
+    "🚀 Execute", "📬 A2A Messages", "🏗️ Architecture"
+])
 
-# ==================== MAIN EXECUTION TAB ====================
-with tab_main:
-    # Sidebar for this tab
-    with st.sidebar:
-        st.header("💡 Example Queries")
-        
-        examples = {
-            "🔍 Research": [
-                "Search for latest AI news and summarize it",
-                "Research climate change and create a report",
-            ],
-            "📄 Documents": [
-                "Read the file at C:/path/to/file.txt and summarize it",
-                "Create a report on renewable energy and save it to my Desktop",
-            ],
-            "🖼️ Images": [
-                "Generate an image of a futuristic city at sunset",
-                "Create an image of a robot playing chess",
-            ],
-            "📊 Data": [
-                "Read the CSV at ~/data.csv and tell me what's in it",
-                "Create a database and add some sample data",
-            ],
-            "🌐 Web": [
-                "Fetch the webpage https://example.com and summarize it",
-                "Download the file at URL and save it locally",
-            ],
-            "💻 System": [
-                "List all files in my Documents folder",
-                "What is 25 * 48 + sqrt(144)?",
-                "Get current system information",
-            ]
-        }
-        
-        for category, queries in examples.items():
-            with st.expander(category):
-                for q in queries:
-                    if st.button(q, key=q, use_container_width=True):
-                        st.session_state.user_input = q
-                        st.rerun()
-        
-        st.divider()
-        st.caption(f"📊 {len(registry.tools)} tools available")
+# ==================== EXECUTE TAB ====================
+with tab_execute:
+    st.subheader("Enter your request")
     
-    # Main input
-    st.subheader("What would you like the agents to do?")
+    # Examples
+    with st.expander("📝 Example requests"):
+        examples = [
+            "List files on my Desktop",
+            "What time is it?",
+            "Get system information",
+            "Calculate 25 * 17 + sqrt(144)",
+            "Write an article about artificial intelligence and save it to my Desktop as ai_article.txt",
+            "Create a folder called Projects on my Desktop",
+            "Fetch the webpage https://example.com and summarize it"
+        ]
+        cols = st.columns(2)
+        for i, ex in enumerate(examples):
+            with cols[i % 2]:
+                if st.button(ex, key=f"ex_{i}", use_container_width=True):
+                    st.session_state.user_input = ex
     
-    # Initialize session state
-    if "user_input" not in st.session_state:
-        st.session_state.user_input = ""
-    if "uploaded_file_path" not in st.session_state:
-        st.session_state.uploaded_file_path = None
-    
-    # File upload
-    uploaded_file = st.file_uploader(
-        "📎 Upload a file (optional)",
-        type=["txt", "pdf", "csv", "json", "xlsx", "docx", "png", "jpg"],
-        help="Upload a file to process with your query"
-    )
-    
-    if uploaded_file:
-        # Save uploaded file temporarily
-        upload_dir = "./uploads"
-        os.makedirs(upload_dir, exist_ok=True)
-        file_path = os.path.join(upload_dir, uploaded_file.name)
-        
-        with open(file_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        
-        st.session_state.uploaded_file_path = os.path.abspath(file_path)
-        st.success(f"📁 File saved: `{st.session_state.uploaded_file_path}`")
-        st.info("You can reference this file in your query!")
-    
-    # Text input
+    # Input
     user_input = st.text_area(
-        "Enter your request",
-        value=st.session_state.user_input,
+        "What would you like to do?",
+        value=st.session_state.get("user_input", ""),
         height=100,
-        placeholder="Example: Search for AI trends and write a summary report",
-        label_visibility="collapsed"
+        placeholder="Describe what you want to accomplish..."
     )
     
-    # If file was uploaded, suggest including it
-    if st.session_state.uploaded_file_path and st.session_state.uploaded_file_path not in user_input:
-        st.caption(f"💡 Tip: Reference your uploaded file with: `{st.session_state.uploaded_file_path}`")
-    
-    col1, col2, col3 = st.columns([1, 1, 4])
-    with col1:
-        execute_btn = st.button("🚀 Execute", type="primary", use_container_width=True)
-    with col2:
-        clear_btn = st.button("🗑️ Clear", use_container_width=True)
-    
-    if clear_btn:
-        st.session_state.user_input = ""
-        st.session_state.uploaded_file_path = None
-        st.rerun()
-    
-    # Execute workflow
-    if execute_btn and user_input:
-        st.divider()
-        
-        # Create columns for visualization
-        col_plan, col_exec = st.columns([1, 1])
-        
-        with col_plan:
-            st.subheader("📋 Task Planning")
+    if st.button("🚀 Execute", type="primary"):
+        if user_input:
+            # Process through multi-agent system
+            with st.spinner("Processing through agents..."):
+                result = synapse.process(user_input)
             
-            with st.spinner("🤔 Analyzing request and planning tasks..."):
-                context = system["context_manager"].create_context(user_input)
-                st.info(f"Session: `{context.session_id}`")
-                
-                try:
-                    task_nodes = system["planner"].plan(context)
-                    context.task_graph = task_nodes
-                    
-                    st.success(f"✅ Generated {len(task_nodes)} tasks")
-                    
-                    # Display task graph
-                    st.markdown("**Task Graph (DAG):**")
-                    for task in task_nodes:
-                        deps_str = f" → depends on: {task.deps}" if task.deps else ""
-                        with st.expander(f"**{task.id}**: {task.tool}{deps_str}"):
-                            st.json(task.args)
-                    
-                except Exception as e:
-                    st.error(f"Planning failed: {e}")
-                    st.stop()
-        
-        with col_exec:
-            st.subheader("⚡ Execution")
+            # ============ RESULTS FIRST (PROMINENT) ============
+            st.subheader("📄 Result")
             
-            progress_bar = st.progress(0)
-            status_container = st.container()
+            exec_result = result.get("stages", {}).get("execution", {})
+            tasks_completed = exec_result.get("tasks_completed", 0)
+            tasks_failed = exec_result.get("tasks_failed", 0)
+            tasks_total = exec_result.get("tasks_total", 0)
             
-            task_statuses = {}
-            for task in context.task_graph:
-                task_statuses[task.id] = status_container.empty()
-                task_statuses[task.id].info(f"⏳ {task.id}: {task.tool} - Pending")
-            
-            def update_callback(task, status):
-                if status == "running":
-                    task_statuses[task.id].warning(f"🔄 {task.id}: {task.tool} - Running...")
-                elif status == "success":
-                    task_statuses[task.id].success(f"✅ {task.id}: {task.tool} - Complete")
+            if result.get("success"):
+                if tasks_failed == 0:
+                    st.success(f"✅ All {tasks_total} tasks completed successfully!")
                 else:
-                    task_statuses[task.id].error(f"❌ {task.id}: {task.tool} - Failed")
+                    st.warning(f"⚠️ Completed with issues: {tasks_completed}/{tasks_total} tasks succeeded")
+            else:
+                st.error(f"❌ Failed: {tasks_failed}/{tasks_total} tasks failed")
+            
+            # ============ SHOW ALL OUTPUTS PROMINENTLY ============
+            final = result.get("final_output", {})
+            all_outputs = final.get("all_outputs", [])
+            
+            # Also check task_results directly for better output
+            task_results = exec_result.get("final_result", {}).get("last_task_result", {})
+            
+            # Display results based on content type
+            for output in all_outputs:
+                task_name = output.get("task", "")
+                task_type = output.get("type", "")
+                content = output.get("content", "")
                 
-                done = len([t for t in context.task_graph if t.status in ["success", "failed"]])
-                progress_bar.progress(done / len(context.task_graph))
-            
-            system["orchestrator"].on_task_update = update_callback
-            
-            with st.spinner("Executing task graph..."):
-                success = system["orchestrator"].execute(context)
-            
-            if success:
-                st.balloons()
-                st.success("🎉 All tasks completed successfully!")
-            else:
-                st.warning("⚠️ Some tasks failed")
-        
-        # Results section
-        st.divider()
-        st.subheader("📄 Results")
-        
-        final_result = None
-        for task in reversed(context.task_graph):
-            if task.status == "success" and task.result:
-                final_result = task.result
-                break
-        
-        if final_result:
-            if isinstance(final_result, dict):
-                if "filepath" in final_result:
-                    st.success(f"📁 File saved: `{final_result['filepath']}`")
-                    try:
-                        with open(final_result['filepath'], 'r') as f:
-                            content = f.read()
-                        st.text_area("File contents:", content, height=300)
-                    except:
-                        pass
-                elif "content" in final_result:
-                    st.markdown(final_result["content"])
-                else:
-                    st.json(final_result)
-            else:
-                st.markdown(str(final_result))
-        
-        # Expandable sections for details
-        with st.expander("🔍 All Task Results"):
-            for task in context.task_graph:
-                st.markdown(f"**{task.id}: {task.tool}** - {task.status}")
-                if task.result:
-                    if isinstance(task.result, str) and len(task.result) > 500:
-                        st.text_area(f"Result", task.result, height=150, key=f"result_{task.id}")
+                if task_type == "list_directory" and isinstance(content, dict):
+                    # File listing
+                    items = content.get("items", [])
+                    directory = content.get("directory", "")
+                    st.markdown(f"**📁 Contents of `{directory}`** ({len(items)} items)")
+                    
+                    # Create a nice table
+                    if items:
+                        cols = st.columns([3, 1, 2])
+                        cols[0].markdown("**Name**")
+                        cols[1].markdown("**Type**")
+                        cols[2].markdown("**Size**")
+                        
+                        for item in items[:50]:  # Limit to 50 items
+                            cols = st.columns([3, 1, 2])
+                            icon = "📁" if item.get("type") == "folder" else "📄"
+                            cols[0].text(f"{icon} {item.get('name', '')}")
+                            cols[1].text(item.get("type", ""))
+                            cols[2].text(item.get("size", "-"))
+                        
+                        if len(items) > 50:
+                            st.caption(f"... and {len(items) - 50} more items")
+                
+                elif task_type == "get_system_info":
+                    # System info
+                    st.markdown("**💻 System Information**")
+                    if isinstance(content, dict):
+                        for key, value in content.items():
+                            if key != "success":
+                                st.text(f"  {key}: {value}")
                     else:
-                        st.write(task.result)
-                if task.error:
-                    st.error(task.error)
-                st.divider()
-        
-        with st.expander("📨 A2A Message Log"):
-            messages = bus.get_message_history()
-            for msg in messages[-20:]:
-                st.code(f"{msg['from']} → {msg['to']}: {msg['type']}")
-
-# ==================== TOOLS TAB ====================
-with tab_tools:
-    st.subheader("🔧 Available MCP Tools")
-    st.caption(f"Total: {len(registry.tools)} tools registered")
-    
-    # Group tools by category
-    tool_categories = {
-        "🤖 AI & Search": ["web_search", "generate_text", "summarize_text", "generate_report"],
-        "📁 Filesystem": ["read_file", "write_file", "create_folder", "list_directory", "delete_file", 
-                         "delete_folder", "move_file", "copy_file", "get_file_info", "search_files"],
-        "📄 Documents": ["read_pdf", "get_pdf_info", "extract_pdf_tables", "read_word", "write_word"],
-        "📊 Data": ["read_csv", "write_csv", "read_excel", "write_excel", "read_json", "write_json"],
-        "🖼️ Images": ["generate_image", "resize_image", "convert_image", "get_image_info"],
-        "🌐 HTTP/API": ["http_get", "http_post", "fetch_webpage", "download_file"],
-        "🗄️ Database": ["create_database", "execute_sql", "create_table", "query_table", "list_tables"],
-        "📧 Email": ["send_email", "check_email_config"],
-        "💻 System": ["execute_python", "run_shell_command", "calculate", "get_system_info", "get_current_datetime"],
-    }
-    
-    for category, tool_names in tool_categories.items():
-        with st.expander(f"{category} ({len(tool_names)} tools)"):
-            for tool_name in tool_names:
-                tool = registry.get_tool(tool_name)
-                if tool:
-                    st.markdown(f"**`{tool.name}`**")
-                    st.caption(tool.description)
-                    with st.popover("View Schema"):
-                        st.json(tool.parameters)
-                    st.divider()
-
-# ==================== FILES TAB ====================
-with tab_files:
-    st.subheader("📁 File Browser")
-    
-    # Directory input
-    browse_dir = st.text_input(
-        "Directory to browse",
-        value=os.path.expanduser("~"),
-        help="Enter a directory path to browse"
-    )
-    
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        if st.button("📂 Browse", use_container_width=True):
-            from mcp.tools.filesystem import list_directory
-            result = list_directory(browse_dir)
+                        st.code(str(content))
+                
+                elif task_type == "get_datetime":
+                    # Date/time
+                    if isinstance(content, dict):
+                        st.markdown(f"**🕐 Current Time:** {content.get('datetime', content)}")
+                    else:
+                        st.markdown(f"**🕐 Current Time:** {content}")
+                
+                elif task_type == "calculate":
+                    # Calculation
+                    if isinstance(content, dict):
+                        expr = content.get("expression", "")
+                        res = content.get("result", content)
+                        st.markdown(f"**🔢 Calculation:** `{expr}` = **{res}**")
+                    else:
+                        st.markdown(f"**🔢 Result:** {content}")
+                
+                elif task_type == "generate_text":
+                    # Generated content
+                    st.markdown("**📝 Generated Content:**")
+                    st.markdown(str(content))
+                
+                elif task_type == "write_file":
+                    # File written
+                    if isinstance(content, dict):
+                        filepath = content.get("filepath", "")
+                        st.markdown(f"**✅ File saved:** `{filepath}`")
+                    else:
+                        st.markdown(f"**✅ File saved:** {content}")
+                
+                elif task_type == "read_file":
+                    # File content
+                    st.markdown("**📄 File Content:**")
+                    st.code(str(content)[:5000])
+                
+                elif task_type == "fetch_webpage":
+                    # Webpage content
+                    if isinstance(content, dict):
+                        title = content.get("title", "")
+                        text = content.get("content", "")
+                        st.markdown(f"**🌐 Webpage: {title}**")
+                        with st.expander("Page content"):
+                            st.text(text[:3000])
+                    else:
+                        st.text(str(content)[:2000])
+                
+                elif task_type in ["create_folder", "move_file", "copy_file", "delete_file"]:
+                    # File operations
+                    st.markdown(f"**✅ {task_type.replace('_', ' ').title()}:** Completed")
+                    if isinstance(content, dict):
+                        for key, value in content.items():
+                            if key not in ["success"] and value:
+                                st.text(f"  {key}: {value}")
+                
+                else:
+                    # Generic output
+                    if content:
+                        if isinstance(content, dict):
+                            st.json(content)
+                        elif len(str(content)) > 500:
+                            st.text_area(f"Output from {task_type}", str(content), height=200)
+                        else:
+                            st.markdown(f"**Output:** {content}")
             
-            if result["success"]:
-                st.session_state.browse_result = result
-            else:
-                st.error(result["error"])
-    
-    if "browse_result" in st.session_state and st.session_state.browse_result:
-        result = st.session_state.browse_result
-        st.success(f"📍 {result['directory']}")
-        st.caption(f"{result['total_items']} items")
-        
-        # Display items
-        for item in result["items"]:
-            icon = "📁" if item["type"] == "folder" else "📄"
-            col1, col2, col3 = st.columns([3, 1, 1])
-            with col1:
-                st.text(f"{icon} {item['name']}")
-            with col2:
-                st.caption(item.get('size_bytes', 0))
-            with col3:
-                st.caption(item['modified'][:10])
+            # If no formatted outputs, show the last result
+            if not all_outputs and task_results:
+                st.markdown("**Result:**")
+                if isinstance(task_results, dict):
+                    # Filter out meta fields
+                    display_result = {k: v for k, v in task_results.items() 
+                                     if k not in ["success", "tool"]}
+                    st.json(display_result)
+                else:
+                    st.code(str(task_results))
+            
+            # ============ EXECUTION DETAILS (COLLAPSED) ============
+            with st.expander("🔍 Execution Details", expanded=False):
+                stages = result.get("stages", {})
+                
+                # Parsing
+                st.markdown("**1️⃣ Input Parsing**")
+                if "parsing" in stages:
+                    parsed = stages["parsing"].get("parsed", {})
+                    st.caption(f"Intent: {parsed.get('intent', 'N/A')}")
+                    st.caption(f"Task type: {parsed.get('task_type', 'N/A')}")
+                
+                # Planning
+                st.markdown("**2️⃣ Execution Plan**")
+                if "planning" in stages:
+                    plan = stages["planning"].get("plan", {})
+                    tasks = plan.get("tasks", [])
+                    for task in tasks:
+                        deps = task.get("depends_on", [])
+                        dep_str = f" (depends on: {', '.join(deps)})" if deps else ""
+                        st.caption(f"• {task.get('task_id')}: {task.get('agent')} → {task.get('tool')}{dep_str}")
+                
+                # Task status
+                st.markdown("**3️⃣ Task Execution**")
+                task_states = exec_result.get("task_states", {})
+                for task_id, state in task_states.items():
+                    if state["status"] == "completed":
+                        st.caption(f"✅ {task_id}: Completed")
+                    else:
+                        st.caption(f"❌ {task_id}: {state.get('error', 'Failed')}")
+            
+            # Raw result (fully collapsed)
+            with st.expander("📋 Raw Result", expanded=False):
+                st.json(result)
 
-# ==================== SETTINGS TAB ====================
-with tab_settings:
-    st.subheader("⚙️ Configuration")
+# ==================== MESSAGES TAB ====================
+with tab_messages:
+    st.subheader("📬 A2A Message History")
+    
+    messages = synapse.get_message_history(100)
+    
+    if messages:
+        for msg in reversed(messages):
+            col1, col2 = st.columns([1, 4])
+            with col1:
+                st.caption(msg.get("timestamp", "")[:19])
+            with col2:
+                sender = msg.get("sender", "?")
+                recipient = msg.get("recipient", "?")
+                msg_type = msg.get("type", "?")
+                
+                if recipient == "broadcast":
+                    st.markdown(f"**{sender}** 📢 *broadcast* `{msg_type}`")
+                else:
+                    st.markdown(f"**{sender}** → **{recipient}** `{msg_type}`")
+                
+                with st.expander("Payload"):
+                    st.json(msg.get("payload", {}))
+    else:
+        st.info("No messages yet. Execute a request to see agent communication.")
+
+# ==================== ARCHITECTURE TAB ====================
+with tab_architecture:
+    st.subheader("🏗️ System Architecture")
+    
+    st.markdown("""
+    ```
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                         USER INPUT                               │
+    └─────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                    INTERACTION AGENT                             │
+    │         Parses input, structures requests, formats results       │
+    └─────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                      PLANNER AGENT                               │
+    │        Creates execution DAG, assigns tasks to agents            │
+    └─────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                   ORCHESTRATOR AGENT                             │
+    │      Dispatches tasks, manages dependencies, aggregates results  │
+    └─────────────────────────────────────────────────────────────────┘
+                                    │
+              ┌─────────────────────┼─────────────────────┐
+              │                     │                     │
+              ▼                     ▼                     ▼
+    ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
+    │   FILE AGENT    │   │  CONTENT AGENT  │   │   WEB AGENT     │
+    │                 │   │                 │   │                 │
+    │ • read_file     │   │ • generate_text │   │ • fetch_webpage │
+    │ • write_file    │   │ • summarize     │   │ • download_file │
+    │ • list_dir      │   │                 │   │                 │
+    │ • copy/move     │   │                 │   │                 │
+    └────────┬────────┘   └────────┬────────┘   └────────┬────────┘
+              │                     │                     │
+              └─────────────────────┼─────────────────────┘
+                                    │
+                                    ▼
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                      A2A MESSAGE BUS                             │
+    │              Central communication for all agents                │
+    └─────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                       MCP SERVER                                 │
+    │          Tool registry, validation, and execution                │
+    └─────────────────────────────────────────────────────────────────┘
+    ```
+    """)
+    
+    st.divider()
+    
+    st.subheader("🤖 Agents")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("### 🔑 API Keys")
-        st.markdown(f"**LLM Provider:** {provider}")
-        st.markdown(f"**GROQ_API_KEY:** {'✅ Set' if os.environ.get('GROQ_API_KEY') else '❌ Not set'}")
-        st.markdown(f"**GEMINI_API_KEY:** {'✅ Set' if os.environ.get('GEMINI_API_KEY') else '❌ Not set'}")
+        st.markdown("""
+        **Interaction Agent**
+        - Parses natural language input
+        - Extracts intent and entities
+        - Formats results for user
         
-        st.divider()
+        **Planner Agent**
+        - Decomposes requests into tasks
+        - Creates execution DAG
+        - Assigns tasks to agents
         
-        st.markdown("### 📧 Email Configuration")
-        from mcp.tools.email_tools import check_email_config
-        email_config = check_email_config()
-        st.json(email_config)
+        **Orchestrator Agent**
+        - Executes plans
+        - Manages dependencies
+        - Passes data between tasks
+        """)
     
     with col2:
-        st.markdown("### 💻 System Info")
-        from mcp.tools.code_tools import get_system_info
-        sys_info = get_system_info()
-        st.json(sys_info)
+        st.markdown("""
+        **File Agent**
+        - File read/write operations
+        - Directory management
+        - File search
         
-        st.divider()
+        **Content Agent**
+        - Text generation (AI)
+        - Summarization
+        - Content transformation
         
-        st.markdown("### 📊 Session Stats")
-        st.metric("Registered Tools", len(registry.tools))
-        st.metric("A2A Messages", len(bus.get_message_history()))
+        **Web Agent**
+        - Fetch web pages
+        - Download files
+        - Extract content
+        
+        **System Agent**
+        - Shell commands
+        - System info
+        - Calculations
+        """)
+    
+    st.divider()
+    
+    st.subheader("🔄 Communication Flow")
+    st.markdown("""
+    1. **User** sends request
+    2. **Interaction Agent** parses and structures the request
+    3. **Planner Agent** creates execution plan (DAG)
+    4. **Orchestrator Agent** receives plan and dispatches tasks
+    5. **Worker Agents** (File, Content, Web, System) execute tasks via A2A messages
+    6. Results flow back through **Orchestrator** to **Interaction Agent**
+    7. **User** receives formatted result
+    
+    All communication happens via the **A2A Message Bus** - agents don't call each other directly.
+    All tool execution happens via the **MCP Server** - standardized interface.
+    """)
 
 # Footer
 st.divider()
-st.caption("Built with ❤️ for Philips Internship | MCP + A2A Architecture Demo | Synapse v2.0")
+st.caption(f"Synapse Multi-Agent System | 7 Agents | {len(synapse.mcp.tools)} Tools | A2A + MCP")
