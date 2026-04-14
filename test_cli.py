@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core.context import ContextManager
 from core.planner import PlannerAgent
 from core.orchestrator import Orchestrator
-from mcp.tools import register_all_tools
+from mcp.tool_loader import register_all_tools
 
 def main():
     print("=" * 60)
@@ -20,11 +20,18 @@ def main():
     print("=" * 60)
     
     # Check API key
-    if not os.environ.get("GROQ_API_KEY"):
-        print("\n❌ Error: GROQ_API_KEY not set")
-        print("Run: export GROQ_API_KEY='your-key-here'")
-        print("Get free key at: https://console.groq.com")
+    if not os.environ.get("GROQ_API_KEY") and not os.environ.get("GEMINI_API_KEY"):
+        print("\n❌ Error: No API key set")
+        print("Run one of:")
+        print("  export GEMINI_API_KEY='your-key-here'  (recommended)")
+        print("  export GROQ_API_KEY='your-key-here'")
+        print("\nGet free keys at:")
+        print("  Gemini: https://aistudio.google.com/apikey")
+        print("  Groq: https://console.groq.com")
         return
+    
+    provider = "Gemini" if os.environ.get("GEMINI_API_KEY") else "Groq"
+    print(f"Using LLM provider: {provider}")
     
     # Initialize
     print("\n📦 Initializing system...")

@@ -9,7 +9,7 @@ A proof-of-concept multi-agent system implementing A2A (Agent-to-Agent) communic
 pip install -r requirements.txt
 
 # Set your API key (use Groq - it's free and fast)
-$env:GROQ_API_KEY="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"
+export GROQ_API_KEY="your-key-here"
 
 # Run the demo
 streamlit run app.py

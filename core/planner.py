@@ -5,11 +5,10 @@ Converts user intent into executable DAG
 import json
 import re
 from typing import List, Dict, Any
-from groq import Groq
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import GROQ_API_KEY, LLM_MODEL
+from config import GROQ_API_KEY, GEMINI_API_KEY, GROQ_MODEL, GEMINI_MODEL, LLM_PROVIDER
 from core.context import Context, TaskNode
 from mcp.registry import get_registry
 
@@ -17,11 +16,42 @@ from mcp.registry import get_registry
 class PlannerAgent:
     """
     LLM-powered planner that decomposes user requests into task DAGs
+    Supports both Groq and Gemini APIs
     """
     
     def __init__(self):
-        self.client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
         self.registry = get_registry()
+        self.provider = LLM_PROVIDER
+        
+        # Initialize the appropriate client
+        if GEMINI_API_KEY:
+            import google.generativeai as genai
+            genai.configure(api_key=GEMINI_API_KEY)
+            self.gemini_model = genai.GenerativeModel(GEMINI_MODEL)
+            self.provider = "gemini"
+        elif GROQ_API_KEY:
+            from groq import Groq
+            self.groq_client = Groq(api_key=GROQ_API_KEY)
+            self.provider = "groq"
+        else:
+            self.gemini_model = None
+            self.groq_client = None
+    
+    def _call_llm(self, prompt: str) -> str:
+        """Call the configured LLM provider"""
+        if self.provider == "gemini" and hasattr(self, 'gemini_model'):
+            response = self.gemini_model.generate_content(prompt)
+            return response.text
+        elif self.provider == "groq" and hasattr(self, 'groq_client'):
+            response = self.groq_client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1000,
+                temperature=0.3
+            )
+            return response.choices[0].message.content
+        else:
+            raise ValueError("No LLM API key configured. Set GEMINI_API_KEY or GROQ_API_KEY")
     
     def plan(self, context: Context) -> List[TaskNode]:
         """
@@ -33,9 +63,6 @@ class PlannerAgent:
         Returns:
             List of TaskNode objects representing the execution plan
         """
-        if not self.client:
-            raise ValueError("GROQ_API_KEY not configured")
-        
         # Get available tools for the prompt
         tools_desc = self.registry.get_tools_prompt()
         
@@ -71,14 +98,7 @@ Respond with ONLY valid JSON in this format:
 Think step by step about what tools are needed and their dependencies."""
 
         try:
-            response = self.client.chat.completions.create(
-                model=LLM_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=1000,
-                temperature=0.3
-            )
-            
-            result = response.choices[0].message.content
+            result = self._call_llm(prompt)
             
             # Parse the JSON from the response
             task_graph = self._parse_task_graph(result)
@@ -94,7 +114,7 @@ Think step by step about what tools are needed and their dependencies."""
                 )
                 task_nodes.append(node)
             
-            context.log_event("PLANNED", "planner", f"Generated {len(task_nodes)} tasks")
+            context.log_event("PLANNED", "planner", f"Generated {len(task_nodes)} tasks via {self.provider}")
             return task_nodes
             
         except Exception as e:
