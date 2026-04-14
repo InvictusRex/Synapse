@@ -108,22 +108,43 @@ User Input
 
 ## Setup
 
+### Windows
+```powershell
+cd synapse
+python setup_windows.py
+# Open a NEW PowerShell window, then:
+synapse
+```
+
+### macOS
 ```bash
-# Install dependencies
+cd synapse
+python3 setup_mac.py
+# Open a NEW terminal window, then:
+synapse
+```
+
+### Linux
+```bash
+cd synapse
+python3 setup_linux.py
+# Open a NEW terminal window, then:
+synapse
+```
+
+### Manual Run (any OS)
+```bash
+cd synapse
 pip install -r requirements.txt
-
-# Set API key (Windows PowerShell)
-$env:GROQ_API_KEY="your-groq-api-key"
-
-# Set API key (Linux/Mac)
-export GROQ_API_KEY="your-groq-api-key"
-
-# Run CLI (recommended)
 python cli.py
+```
 
-# Or run Web UI
+### Web UI
+```bash
 streamlit run app.py
 ```
+
+Note: API key is stored in `.env` file. Edit it to change your key.
 
 ## CLI Interface
 
