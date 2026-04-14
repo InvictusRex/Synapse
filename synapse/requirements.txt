@@ -1,0 +1,29 @@
+groq
+google-generativeai
+streamlit
+duckduckgo-search
+python-dotenv
+networkx
+
+# PDF Processing
+PyPDF2
+pdfplumber
+
+# Image Processing
+Pillow
+requests
+
+# Database
+sqlalchemy
+
+# Web/HTTP
+beautifulsoup4
+httpx
+
+# Data Processing
+pandas
+openpyxl
+python-docx
+
+# Code Execution
+RestrictedPython

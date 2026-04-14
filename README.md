@@ -108,16 +108,49 @@ User Input
 
 ## Setup
 
-```powershell
+```bash
 # Install dependencies
 pip install -r requirements.txt
 
-# Set API key
+# Set API key (Windows PowerShell)
 $env:GROQ_API_KEY="your-groq-api-key"
 
-# Run
+# Set API key (Linux/Mac)
+export GROQ_API_KEY="your-groq-api-key"
+
+# Run CLI (recommended)
+python cli.py
+
+# Or run Web UI
 streamlit run app.py
 ```
+
+## CLI Interface
+
+The CLI provides a beautiful terminal interface with Gruvbox-dark theme:
+
+```
+███████╗██╗   ██╗███╗   ██╗ █████╗ ██████╗ ███████╗███████╗
+██╔════╝╚██╗ ██╔╝████╗  ██║██╔══██╗██╔══██╗██╔════╝██╔════╝
+███████╗ ╚████╔╝ ██╔██╗ ██║███████║██████╔╝███████╗█████╗  
+╚════██║  ╚██╔╝  ██║╚██╗██║██╔══██║██╔═══╝ ╚════██║██╔══╝  
+███████║   ██║   ██║ ╚████║██║  ██║██║     ███████║███████╗
+╚══════╝   ╚═╝   ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝     ╚══════╝╚══════╝
+
+[1] Execute a task
+[2] View agent tools  
+[3] System status
+[h] Help
+[q] Quit
+```
+
+### CLI Commands
+- **[1]** - Enter task execution mode
+- **[2]** - Browse tools by category (file, web, system, content, data)
+- **[3]** - View system status and agent info
+- **[h]** - Show help
+- **[q]** - Quit
+- Or just type your request directly!
 
 ## What Makes This a TRUE Multi-Agent System
 
@@ -158,7 +191,8 @@ streamlit run app.py
 
 ```
 synapse/
-├── app.py                    # Streamlit UI
+├── cli.py                    # CLI Interface (Gruvbox theme)
+├── app.py                    # Streamlit Web UI
 ├── synapse.py                # Main system (initializes everything)
 ├── config.py                 # Configuration
 ├── requirements.txt

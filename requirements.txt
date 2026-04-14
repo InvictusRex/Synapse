@@ -2,6 +2,7 @@
 groq
 streamlit
 python-dotenv
+rich
 
 # Data
 pandas
