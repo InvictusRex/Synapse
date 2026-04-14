@@ -1,7 +1,6 @@
 ## User Input Layer:
 - raw input is captured using CLI or UI
 - original context:
-
 ```python
 context = {
     "raw_input": "Create a report on AI in healthcare and save it"
@@ -48,7 +47,6 @@ context.update({
 context["plan"] = plan
 ```
 - this proves no hardcoded dynamic workflow generation
-
 ## Orchestrator:
 - This is the execution engine
 - It executes the plan step by step
@@ -63,7 +61,6 @@ for step in context["plan"]:
 ```
 - No agent can talk to each other directly and all communication is via context
 - This simulates A2A communication
-
 ## Agent Pool:
 #### 1. Content Agent:
 - Generates the report using Gemini API or any other LLM

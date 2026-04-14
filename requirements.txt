@@ -1,0 +1,5 @@
+groq
+streamlit
+duckduckgo-search
+python-dotenv
+networkx
