@@ -151,9 +151,11 @@ def register_all_tools():
             },
             "required": ["query"]
         },
-        handler=web_search
+        handler=web_search,
+        category="ai",
+        examples=["web_search query='latest AI news'", "web_search query='python tutorials' max_results=10"]
     )
-    
+
     registry.register(
         name="generate_text",
         description="Generate text content using AI",
@@ -165,9 +167,11 @@ def register_all_tools():
             },
             "required": ["prompt"]
         },
-        handler=generate_text
+        handler=generate_text,
+        category="ai",
+        examples=["generate_text prompt='Write a poem about nature'"]
     )
-    
+
     registry.register(
         name="summarize_text",
         description="Summarize text into key points or a brief summary",
@@ -179,9 +183,11 @@ def register_all_tools():
             },
             "required": ["text"]
         },
-        handler=summarize_text
+        handler=summarize_text,
+        category="ai",
+        examples=["summarize_text text='Long article...' style='bullet_points'"]
     )
-    
+
     registry.register(
         name="generate_report",
         description="Generate a structured report on a topic",
@@ -193,7 +199,9 @@ def register_all_tools():
             },
             "required": ["topic"]
         },
-        handler=generate_report
+        handler=generate_report,
+        category="ai",
+        examples=["generate_report topic='Renewable Energy' context='Focus on solar'"]
     )
     
     # ==================== FILESYSTEM TOOLS ====================
@@ -207,9 +215,11 @@ def register_all_tools():
             },
             "required": ["filepath"]
         },
-        handler=filesystem.read_file
+        handler=filesystem.read_file,
+        category="filesystem",
+        examples=["read_file filepath='~/notes.txt'"]
     )
-    
+
     registry.register(
         name="write_file",
         description="Write content to any file location on the system",
@@ -222,9 +232,11 @@ def register_all_tools():
             },
             "required": ["filepath", "content"]
         },
-        handler=filesystem.write_file
+        handler=filesystem.write_file,
+        category="filesystem",
+        examples=["write_file filepath='output.txt' content='Hello World'"]
     )
-    
+
     registry.register(
         name="create_folder",
         description="Create a new folder/directory at any location",
@@ -235,9 +247,11 @@ def register_all_tools():
             },
             "required": ["folder_path"]
         },
-        handler=filesystem.create_folder
+        handler=filesystem.create_folder,
+        category="filesystem",
+        examples=["create_folder folder_path='~/projects/new_project'"]
     )
-    
+
     registry.register(
         name="list_directory",
         description="List contents of a directory",
@@ -249,9 +263,11 @@ def register_all_tools():
             },
             "required": ["directory"]
         },
-        handler=filesystem.list_directory
+        handler=filesystem.list_directory,
+        category="filesystem",
+        examples=["list_directory directory='.' include_hidden=true"]
     )
-    
+
     registry.register(
         name="delete_file",
         description="Delete a file",
@@ -262,9 +278,11 @@ def register_all_tools():
             },
             "required": ["filepath"]
         },
-        handler=filesystem.delete_file
+        handler=filesystem.delete_file,
+        category="filesystem",
+        examples=["delete_file filepath='temp.txt'"]
     )
-    
+
     registry.register(
         name="delete_folder",
         description="Delete a folder (optionally with all contents)",
@@ -276,9 +294,11 @@ def register_all_tools():
             },
             "required": ["folder_path"]
         },
-        handler=filesystem.delete_folder
+        handler=filesystem.delete_folder,
+        category="filesystem",
+        examples=["delete_folder folder_path='old_project' recursive=true"]
     )
-    
+
     registry.register(
         name="move_file",
         description="Move a file or folder to a new location",
@@ -290,9 +310,11 @@ def register_all_tools():
             },
             "required": ["source", "destination"]
         },
-        handler=filesystem.move_file
+        handler=filesystem.move_file,
+        category="filesystem",
+        examples=["move_file source='old.txt' destination='new.txt'"]
     )
-    
+
     registry.register(
         name="copy_file",
         description="Copy a file to a new location",
@@ -304,9 +326,11 @@ def register_all_tools():
             },
             "required": ["source", "destination"]
         },
-        handler=filesystem.copy_file
+        handler=filesystem.copy_file,
+        category="filesystem",
+        examples=["copy_file source='report.pdf' destination='backup/report.pdf'"]
     )
-    
+
     registry.register(
         name="get_file_info",
         description="Get detailed information about a file",
@@ -317,9 +341,11 @@ def register_all_tools():
             },
             "required": ["filepath"]
         },
-        handler=filesystem.get_file_info
+        handler=filesystem.get_file_info,
+        category="filesystem",
+        examples=["get_file_info filepath='document.pdf'"]
     )
-    
+
     registry.register(
         name="search_files",
         description="Search for files matching a pattern",
@@ -332,7 +358,9 @@ def register_all_tools():
             },
             "required": ["directory", "pattern"]
         },
-        handler=filesystem.search_files
+        handler=filesystem.search_files,
+        category="filesystem",
+        examples=["search_files directory='.' pattern='*.py' recursive=true"]
     )
     
     # ==================== PDF TOOLS ====================
@@ -347,9 +375,11 @@ def register_all_tools():
             },
             "required": ["filepath"]
         },
-        handler=pdf_tools.read_pdf
+        handler=pdf_tools.read_pdf,
+        category="data_files",
+        examples=["read_pdf filepath='report.pdf' pages='1-3'"]
     )
-    
+
     registry.register(
         name="get_pdf_info",
         description="Get metadata and info about a PDF file",
@@ -360,9 +390,11 @@ def register_all_tools():
             },
             "required": ["filepath"]
         },
-        handler=pdf_tools.get_pdf_info
+        handler=pdf_tools.get_pdf_info,
+        category="data_files",
+        examples=["get_pdf_info filepath='report.pdf'"]
     )
-    
+
     registry.register(
         name="extract_pdf_tables",
         description="Extract tables from a PDF file",
@@ -374,9 +406,11 @@ def register_all_tools():
             },
             "required": ["filepath"]
         },
-        handler=pdf_tools.extract_pdf_tables
+        handler=pdf_tools.extract_pdf_tables,
+        category="data_files",
+        examples=["extract_pdf_tables filepath='data.pdf' page_number=2"]
     )
-    
+
     # ==================== IMAGE TOOLS ====================
     registry.register(
         name="generate_image",
@@ -391,9 +425,11 @@ def register_all_tools():
             },
             "required": ["prompt"]
         },
-        handler=image_tools.generate_image
+        handler=image_tools.generate_image,
+        category="ai",
+        examples=["generate_image prompt='A sunset over mountains'"]
     )
-    
+
     registry.register(
         name="resize_image",
         description="Resize an image",
@@ -407,9 +443,11 @@ def register_all_tools():
             },
             "required": ["input_path", "output_path"]
         },
-        handler=image_tools.resize_image
+        handler=image_tools.resize_image,
+        category="filesystem",
+        examples=["resize_image input_path='photo.png' output_path='small.png' width=200 height=200"]
     )
-    
+
     registry.register(
         name="convert_image",
         description="Convert image to a different format",
@@ -421,9 +459,11 @@ def register_all_tools():
             },
             "required": ["input_path", "output_path"]
         },
-        handler=image_tools.convert_image
+        handler=image_tools.convert_image,
+        category="filesystem",
+        examples=["convert_image input_path='photo.png' output_path='photo.jpg'"]
     )
-    
+
     registry.register(
         name="get_image_info",
         description="Get information about an image file",
@@ -434,9 +474,11 @@ def register_all_tools():
             },
             "required": ["filepath"]
         },
-        handler=image_tools.get_image_info
+        handler=image_tools.get_image_info,
+        category="filesystem",
+        examples=["get_image_info filepath='photo.png'"]
     )
-    
+
     # ==================== EMAIL TOOLS ====================
     registry.register(
         name="send_email",
@@ -451,16 +493,20 @@ def register_all_tools():
             },
             "required": ["to", "subject", "body"]
         },
-        handler=email_tools.send_email
+        handler=email_tools.send_email,
+        category="web",
+        examples=["send_email to='user@example.com' subject='Hello' body='Hi there!'"]
     )
-    
+
     registry.register(
         name="check_email_config",
         description="Check if email is properly configured",
         parameters={"type": "object", "properties": {}},
-        handler=email_tools.check_email_config
+        handler=email_tools.check_email_config,
+        category="web",
+        examples=["check_email_config"]
     )
-    
+
     # ==================== HTTP TOOLS ====================
     registry.register(
         name="http_get",
@@ -473,9 +519,11 @@ def register_all_tools():
             },
             "required": ["url"]
         },
-        handler=http_tools.http_get
+        handler=http_tools.http_get,
+        category="web",
+        examples=["http_get url='https://api.example.com/data'"]
     )
-    
+
     registry.register(
         name="http_post",
         description="Make an HTTP POST request to any URL/API",
@@ -488,9 +536,11 @@ def register_all_tools():
             },
             "required": ["url"]
         },
-        handler=http_tools.http_post
+        handler=http_tools.http_post,
+        category="web",
+        examples=["http_post url='https://api.example.com/submit'"]
     )
-    
+
     registry.register(
         name="fetch_webpage",
         description="Fetch a webpage and extract readable text content",
@@ -502,9 +552,11 @@ def register_all_tools():
             },
             "required": ["url"]
         },
-        handler=http_tools.fetch_webpage
+        handler=http_tools.fetch_webpage,
+        category="web",
+        examples=["fetch_webpage url='https://example.com'"]
     )
-    
+
     registry.register(
         name="download_file",
         description="Download a file from a URL to local disk",
@@ -516,9 +568,11 @@ def register_all_tools():
             },
             "required": ["url", "save_path"]
         },
-        handler=http_tools.download_file
+        handler=http_tools.download_file,
+        category="web",
+        examples=["download_file url='https://example.com/file.zip' save_path='./file.zip'"]
     )
-    
+
     # ==================== DATABASE TOOLS ====================
     registry.register(
         name="create_database",
@@ -530,9 +584,11 @@ def register_all_tools():
             },
             "required": ["db_path"]
         },
-        handler=database_tools.create_database
+        handler=database_tools.create_database,
+        category="database",
+        examples=["create_database db_path='my_app.db'"]
     )
-    
+
     registry.register(
         name="execute_sql",
         description="Execute a SQL statement on a SQLite database",
@@ -544,9 +600,11 @@ def register_all_tools():
             },
             "required": ["db_path", "sql"]
         },
-        handler=database_tools.execute_sql
+        handler=database_tools.execute_sql,
+        category="database",
+        examples=["execute_sql db_path='app.db' sql='SELECT * FROM users'"]
     )
-    
+
     registry.register(
         name="create_table",
         description="Create a table in a SQLite database",
@@ -559,9 +617,11 @@ def register_all_tools():
             },
             "required": ["db_path", "table_name", "columns"]
         },
-        handler=database_tools.create_table
+        handler=database_tools.create_table,
+        category="database",
+        examples=["create_table db_path='app.db' table_name='users' columns='{\"name\": \"TEXT\", \"age\": \"INTEGER\"}'"]
     )
-    
+
     registry.register(
         name="query_table",
         description="Query data from a database table",
@@ -574,9 +634,11 @@ def register_all_tools():
             },
             "required": ["db_path", "table_name"]
         },
-        handler=database_tools.query_table
+        handler=database_tools.query_table,
+        category="database",
+        examples=["query_table db_path='app.db' table_name='users' where='age > 18'"]
     )
-    
+
     registry.register(
         name="list_tables",
         description="List all tables in a SQLite database",
@@ -587,9 +649,11 @@ def register_all_tools():
             },
             "required": ["db_path"]
         },
-        handler=database_tools.list_tables
+        handler=database_tools.list_tables,
+        category="database",
+        examples=["list_tables db_path='app.db'"]
     )
-    
+
     # ==================== DATA PROCESSING TOOLS ====================
     registry.register(
         name="read_csv",
@@ -603,9 +667,11 @@ def register_all_tools():
             },
             "required": ["filepath"]
         },
-        handler=data_tools.read_csv
+        handler=data_tools.read_csv,
+        category="data_files",
+        examples=["read_csv filepath='data.csv' limit=50"]
     )
-    
+
     registry.register(
         name="write_csv",
         description="Write data to a CSV file",
@@ -617,9 +683,11 @@ def register_all_tools():
             },
             "required": ["filepath", "data"]
         },
-        handler=data_tools.write_csv
+        handler=data_tools.write_csv,
+        category="data_files",
+        examples=["write_csv filepath='output.csv' data='[{\"name\": \"Alice\", \"age\": 30}]'"]
     )
-    
+
     registry.register(
         name="read_excel",
         description="Read an Excel file (.xlsx, .xls)",
@@ -631,9 +699,11 @@ def register_all_tools():
             },
             "required": ["filepath"]
         },
-        handler=data_tools.read_excel
+        handler=data_tools.read_excel,
+        category="data_files",
+        examples=["read_excel filepath='report.xlsx' sheet_name='Sheet1'"]
     )
-    
+
     registry.register(
         name="write_excel",
         description="Write data to an Excel file",
@@ -646,9 +716,11 @@ def register_all_tools():
             },
             "required": ["filepath", "data"]
         },
-        handler=data_tools.write_excel
+        handler=data_tools.write_excel,
+        category="data_files",
+        examples=["write_excel filepath='output.xlsx' data='[{\"col1\": \"val1\"}]'"]
     )
-    
+
     registry.register(
         name="read_word",
         description="Read a Word document (.docx)",
@@ -659,9 +731,11 @@ def register_all_tools():
             },
             "required": ["filepath"]
         },
-        handler=data_tools.read_word
+        handler=data_tools.read_word,
+        category="data_files",
+        examples=["read_word filepath='document.docx'"]
     )
-    
+
     registry.register(
         name="write_word",
         description="Write content to a Word document",
@@ -674,9 +748,11 @@ def register_all_tools():
             },
             "required": ["filepath", "content"]
         },
-        handler=data_tools.write_word
+        handler=data_tools.write_word,
+        category="data_files",
+        examples=["write_word filepath='doc.docx' content='Hello World' title='My Doc'"]
     )
-    
+
     registry.register(
         name="read_json",
         description="Read a JSON file",
@@ -687,9 +763,11 @@ def register_all_tools():
             },
             "required": ["filepath"]
         },
-        handler=data_tools.read_json
+        handler=data_tools.read_json,
+        category="data_files",
+        examples=["read_json filepath='config.json'"]
     )
-    
+
     registry.register(
         name="write_json",
         description="Write data to a JSON file",
@@ -701,9 +779,11 @@ def register_all_tools():
             },
             "required": ["filepath", "data"]
         },
-        handler=data_tools.write_json
+        handler=data_tools.write_json,
+        category="data_files",
+        examples=["write_json filepath='output.json' data='{\"key\": \"value\"}'"]
     )
-    
+
     # ==================== CODE & UTILITY TOOLS ====================
     registry.register(
         name="execute_python",
@@ -715,9 +795,11 @@ def register_all_tools():
             },
             "required": ["code"]
         },
-        handler=code_tools.execute_python
+        handler=code_tools.execute_python,
+        category="system",
+        examples=["execute_python code='print(2 + 2)'"]
     )
-    
+
     registry.register(
         name="run_shell_command",
         description="Run a shell/terminal command",
@@ -729,9 +811,11 @@ def register_all_tools():
             },
             "required": ["command"]
         },
-        handler=code_tools.run_shell_command
+        handler=code_tools.run_shell_command,
+        category="system",
+        examples=["run_shell_command command='ls -la' timeout=30"]
     )
-    
+
     registry.register(
         name="calculate",
         description="Safely evaluate a mathematical expression",
@@ -742,21 +826,27 @@ def register_all_tools():
             },
             "required": ["expression"]
         },
-        handler=code_tools.calculate
+        handler=code_tools.calculate,
+        category="system",
+        examples=["calculate expression='sqrt(144) + 2**3'"]
     )
-    
+
     registry.register(
         name="get_system_info",
         description="Get information about the operating system",
         parameters={"type": "object", "properties": {}},
-        handler=code_tools.get_system_info
+        handler=code_tools.get_system_info,
+        category="system",
+        examples=["get_system_info"]
     )
-    
+
     registry.register(
         name="get_current_datetime",
         description="Get current date and time",
         parameters={"type": "object", "properties": {}},
-        handler=code_tools.get_current_datetime
+        handler=code_tools.get_current_datetime,
+        category="system",
+        examples=["get_current_datetime"]
     )
     
     print(f"[MCP] Registered {len(registry.tools)} tools")

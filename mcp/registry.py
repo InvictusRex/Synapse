@@ -13,13 +13,21 @@ class ToolSchema:
     description: str
     parameters: Dict[str, Any]
     handler: Callable
-    
+    category: str = "general"
+    examples: List[str] = None
+
+    def __post_init__(self):
+        if self.examples is None:
+            self.examples = []
+
     def to_dict(self) -> Dict:
         """Convert to MCP-compatible format"""
         return {
             "name": self.name,
             "description": self.description,
-            "parameters": self.parameters
+            "parameters": self.parameters,
+            "category": self.category,
+            "examples": self.examples
         }
     
     def validate_args(self, args: Dict) -> bool:
@@ -39,20 +47,24 @@ class ToolRegistry:
     def __init__(self):
         self.tools: Dict[str, ToolSchema] = {}
     
-    def register(self, 
-                 name: str, 
-                 description: str, 
+    def register(self,
+                 name: str,
+                 description: str,
                  parameters: Dict[str, Any],
-                 handler: Callable):
+                 handler: Callable,
+                 category: str = "general",
+                 examples: List[str] = None):
         """Register a new tool"""
         schema = ToolSchema(
             name=name,
             description=description,
             parameters=parameters,
-            handler=handler
+            handler=handler,
+            category=category,
+            examples=examples or []
         )
         self.tools[name] = schema
-        print(f"[MCP] Tool registered: {name}")
+        print(f"[MCP] Tool registered: {name} [{category}]")
     
     def get_tool(self, name: str) -> Optional[ToolSchema]:
         """Get a tool by name"""
@@ -62,6 +74,22 @@ class ToolRegistry:
         """List all available tools (MCP tools/list style)"""
         return [tool.to_dict() for tool in self.tools.values()]
     
+    def get_categories(self) -> List[str]:
+        """Get all unique tool categories"""
+        cats = sorted(set(t.category for t in self.tools.values()))
+        return cats
+
+    def get_tools_by_category(self, category: str) -> List[ToolSchema]:
+        """Get all tools in a category"""
+        return [t for t in self.tools.values() if t.category == category]
+
+    def get_categorized_tools(self) -> Dict[str, List[ToolSchema]]:
+        """Get all tools grouped by category"""
+        grouped: Dict[str, List[ToolSchema]] = {}
+        for tool in self.tools.values():
+            grouped.setdefault(tool.category, []).append(tool)
+        return grouped
+
     def get_tools_prompt(self) -> str:
         """Generate a prompt-friendly description of all tools"""
         lines = ["Available tools:"]

@@ -84,9 +84,10 @@ Rules:
 2. Use web_search to gather information first
 3. Use generate_report or generate_text to create content
 4. Use summarize_text if user wants summaries
-5. Use save_to_file if user wants to save output
+5. Use write_file to save output. Always save files to the "outputs/" folder (e.g. "outputs/report.txt", "outputs/data.csv")
 6. Tasks can run in parallel if they don't depend on each other
 7. Pass results between tasks using {{T1.result}} syntax in args
+8. Only use tool names that appear in the available tools list above. Do not invent tool names.
 
 Respond with ONLY valid JSON in this format:
 {{
