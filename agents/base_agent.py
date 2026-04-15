@@ -156,7 +156,7 @@ JSON ONLY:"""
             }
         
         result = self.mcp.tools_call(tool_name, args)
-        print(f"[{self.agent_id}] Tool {tool_name}: {'✓' if result.get('success') else '✗'}")
+        print(f"[{self.agent_id}] Tool {tool_name}: {'OK' if result.get('success') else 'FAIL'}")
         return result
     
     # ==================== Messaging ====================

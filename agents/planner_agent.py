@@ -79,21 +79,44 @@ REQUEST:
 {json.dumps(request, indent=2)}
 
 CRITICAL RULES:
-1. DEFAULT LOCATION: Create files/folders in Current Directory ({self.working_dir}) unless user specifies otherwise
-2. Only use Desktop/Documents/Downloads if user explicitly mentions them
-3. For "current directory" or "here" or "cwd" → use {self.working_dir}
-4. For "pwd" or "what directory" → use get_cwd tool
-5. Parse names correctly:
+1. PATH RESOLUTION (IMPORTANT):
+   - If user says "Desktop" → use EXACTLY: {self.desktop}
+   - If user says "Documents" → use EXACTLY: {self.documents}
+   - If user says "Downloads" → use EXACTLY: {self.downloads}
+   - If user says "on Desktop" or "in Desktop" or "to Desktop" → use {self.desktop}
+   - If user says "in a folder named X on Desktop" → use {self.desktop}/X
+   - If no location specified → use current directory: {self.working_dir}
+
+2. For "current directory" or "here" or "cwd" → use {self.working_dir}
+3. For "pwd" or "what directory" → use get_cwd tool
+4. Parse names correctly:
    - "the templates folder" means folder named "templates" (NOT "templates folder")
    - "a file called test.txt" means filename "test.txt"
    - "move X from A to B" means source is A/X, destination is B/X
 
+FOLDER + FILE CREATION ORDER:
+- If creating a file in a NEW folder, create the folder FIRST (T1), then the file (T2)
+- Example: "save as haiku.txt in HAIKU folder on Desktop"
+  → T1: create_folder at {self.desktop}/HAIKU
+  → T2: write_file at {self.desktop}/HAIKU/haiku.txt (depends_on: T1)
+
 WHEN TO USE WHICH TOOL:
 - User provides EXACT content (e.g., "with content 'Hello'") → write_file directly
-- User wants NEW content created (e.g., "write article about X") → generate_text then write_file
+- User wants NEW content created AND saved (e.g., "write article about X and save it") → generate_text then write_file
 - User wants to list/read files → file_agent only
 - User asks for pwd/cwd/current directory → system_agent.get_cwd
 - move_file: source=full path to file/folder, destination=full path where it should go
+
+DO NOT CREATE FILES FOR:
+- Conversational queries like "hello", "how are you", "what can you do"
+- Questions that just need information (use appropriate info tool instead)
+- Greetings or casual chat
+- If user doesn't explicitly ask to save/create/write a file, DON'T create one
+
+FOR CONVERSATIONAL/UNKNOWN QUERIES:
+- If the user asks a general question or greeting, use generate_text to provide a helpful response
+- Do NOT save the response to a file unless explicitly asked
+- Do NOT run echo commands or other debugging commands
 
 For write_file/create_file: ALWAYS include "filepath" and "content" arguments
 For move_file: include "source" (full path) and "destination" (full path)
