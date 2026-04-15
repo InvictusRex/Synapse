@@ -98,6 +98,17 @@ WHEN TO USE WHICH TOOL:
 - User asks for pwd/cwd/current directory → system_agent.get_cwd
 - move_file: source=full path to file/folder, destination=full path where it should go
 
+SAVING FILES - CRITICAL:
+- When the user says "save to", "save in", "save as", or specifies a folder/filename, you MUST create a write_file task using file_agent
+- If a folder doesn't exist yet (e.g., "outputs"), create it first with create_folder, then write the file
+- The write_file task MUST use {{TASK_ID.content}} to reference generated content from a previous task
+- NEVER use content_agent to save files. content_agent ONLY generates text. file_agent saves files.
+
+EXAMPLE - "generate a report on X and save it in outputs folder":
+  T1: file_agent → create_folder → {{"folder_path": "{self.working_dir}/outputs"}}
+  T2: content_agent → generate_text → {{"prompt": "Write a detailed report on X"}}
+  T3: file_agent → write_file → {{"filepath": "{self.working_dir}/outputs/report.txt", "content": "{{T2.content}}"}} depends_on: [T1, T2]
+
 For write_file/create_file: ALWAYS include "filepath" and "content" arguments
 For move_file: include "source" (full path) and "destination" (full path)
 For tasks needing previous output: use {{TASK_ID.content}} in args
