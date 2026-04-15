@@ -1,211 +1,191 @@
 """
 MCP (Model Context Protocol) Server
-Handles tool registration, discovery, and execution
+Tool registry and execution
 """
-import json
-from typing import Dict, Any, List, Callable, Optional
+import threading
+from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass
 from enum import Enum
 
 
 class ToolCategory(Enum):
-    """Categories of tools"""
+    """Tool categories for agent filtering"""
     FILESYSTEM = "filesystem"
     CONTENT = "content"
     WEB = "web"
     SYSTEM = "system"
     DATA = "data"
+    MEMORY = "memory"
 
 
 @dataclass
-class ToolSchema:
-    """MCP Tool Schema"""
+class ToolDefinition:
+    """Definition of a tool"""
     name: str
     description: str
     category: ToolCategory
-    parameters: Dict[str, Any]  # JSON Schema format
-    required_params: List[str]
     handler: Callable
+    required_args: List[str]
+    optional_args: List[str] = None
     
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "name": self.name,
             "description": self.description,
             "category": self.category.value,
-            "parameters": self.parameters,
-            "required": self.required_params
+            "required": self.required_args,
+            "optional": self.optional_args or []
         }
-    
-    def validate_args(self, args: Dict) -> tuple[bool, str]:
-        """Validate arguments against schema"""
-        for param in self.required_params:
-            if param not in args:
-                return False, f"Missing required parameter: {param}"
-        return True, ""
 
 
 class MCPServer:
     """
-    MCP Server - Tool Abstraction Layer
+    MCP (Model Context Protocol) Server
     
-    Responsibilities:
-    - Tool registration and discovery
-    - Schema validation
-    - Tool execution routing
-    - Standardized interface
+    Manages tool registration, discovery, and execution.
+    Provides a unified interface for all agent tools.
     """
     
-    def __init__(self):
-        self.tools: Dict[str, ToolSchema] = {}
-        self.execution_count = 0
-        self.execution_log: List[Dict] = []
+    _instance = None
+    _lock = threading.Lock()
     
-    # ==================== MCP Protocol Methods ====================
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+    
+    def __init__(self):
+        if self._initialized:
+            return
+        
+        self._tools: Dict[str, ToolDefinition] = {}
+        self._execution_count = 0
+        self._execution_log: List[Dict] = []
+        self._lock = threading.Lock()
+        self._initialized = True
+    
+    def register_tool(self, tool: ToolDefinition):
+        """Register a tool"""
+        with self._lock:
+            self._tools[tool.name] = tool
+    
+    def register_tools(self, tools: List[ToolDefinition]):
+        """Register multiple tools"""
+        for tool in tools:
+            self.register_tool(tool)
+    
+    def unregister_tool(self, name: str):
+        """Unregister a tool"""
+        with self._lock:
+            if name in self._tools:
+                del self._tools[name]
+    
+    def get_tool(self, name: str) -> Optional[ToolDefinition]:
+        """Get a tool by name"""
+        return self._tools.get(name)
     
     def tools_list(self, category: ToolCategory = None) -> List[Dict]:
-        """
-        MCP: tools/list
-        List all available tools, optionally filtered by category
-        """
+        """List all tools, optionally filtered by category"""
         tools = []
-        for tool in self.tools.values():
+        for tool in self._tools.values():
             if category is None or tool.category == category:
                 tools.append(tool.to_dict())
         return tools
     
-    def tools_call(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        MCP: tools/call
-        Execute a tool with given arguments
-        """
-        self.execution_count += 1
-        
-        # Get tool
-        tool = self.tools.get(tool_name)
-        if not tool:
-            result = {
-                "success": False,
-                "error": f"Tool not found: {tool_name}",
-                "available_tools": list(self.tools.keys())
-            }
-            self._log_execution(tool_name, arguments, result)
-            return result
-        
-        # Validate arguments
-        valid, error = tool.validate_args(arguments)
-        if not valid:
-            result = {
-                "success": False,
-                "error": error,
-                "tool": tool_name,
-                "required_params": tool.required_params
-            }
-            self._log_execution(tool_name, arguments, result)
-            return result
-        
-        # Execute
-        try:
-            result = tool.handler(**arguments)
-            if not isinstance(result, dict):
-                result = {"success": True, "result": result}
-            self._log_execution(tool_name, arguments, result)
-            return result
-        except Exception as e:
-            result = {
-                "success": False,
-                "error": f"Execution error: {str(e)}",
-                "tool": tool_name
-            }
-            self._log_execution(tool_name, arguments, result)
-            return result
-    
-    def tools_describe(self, tool_name: str) -> Optional[Dict]:
-        """
-        MCP: tools/describe
-        Get detailed information about a specific tool
-        """
-        tool = self.tools.get(tool_name)
-        if tool:
-            return tool.to_dict()
-        return None
-    
-    # ==================== Registration Methods ====================
-    
-    def register_tool(self, 
-                      name: str,
-                      description: str,
-                      category: ToolCategory,
-                      parameters: Dict[str, Any],
-                      required_params: List[str],
-                      handler: Callable) -> bool:
-        """Register a tool with the MCP server"""
-        if name in self.tools:
-            return False
-        
-        self.tools[name] = ToolSchema(
-            name=name,
-            description=description,
-            category=category,
-            parameters=parameters,
-            required_params=required_params,
-            handler=handler
-        )
-        print(f"[MCP] Tool registered: {name} ({category.value})")
-        return True
-    
-    def unregister_tool(self, name: str) -> bool:
-        """Unregister a tool"""
-        if name in self.tools:
-            del self.tools[name]
-            return True
-        return False
-    
-    # ==================== Helper Methods ====================
-    
     def get_tools_by_category(self, category: ToolCategory) -> List[str]:
         """Get tool names by category"""
-        return [name for name, tool in self.tools.items() 
+        return [name for name, tool in self._tools.items() 
                 if tool.category == category]
     
+    def tools_call(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute a tool"""
+        tool = self._tools.get(name)
+        
+        if not tool:
+            return {"success": False, "error": f"Tool '{name}' not found"}
+        
+        # Validate required args
+        for arg in tool.required_args:
+            if arg not in args:
+                return {"success": False, "error": f"Missing required argument: {arg}"}
+        
+        try:
+            self._execution_count += 1
+            result = tool.handler(**args)
+            
+            # Log execution
+            self._execution_log.append({
+                "tool": name,
+                "args": args,
+                "success": result.get("success", True),
+                "execution_id": self._execution_count
+            })
+            
+            # Keep log limited
+            if len(self._execution_log) > 100:
+                self._execution_log = self._execution_log[-50:]
+            
+            return result
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
     def get_tools_for_prompt(self) -> str:
-        """Get a prompt-friendly description of all tools"""
+        """Get tool descriptions formatted for LLM prompt"""
         lines = []
-        for category in ToolCategory:
-            tools = self.get_tools_by_category(category)
-            if tools:
-                lines.append(f"\n{category.value.upper()} TOOLS:")
-                for name in tools:
-                    tool = self.tools[name]
-                    params = ", ".join(tool.required_params) if tool.required_params else "none"
-                    lines.append(f"  - {name}({params}): {tool.description}")
+        
+        # Group by category
+        by_category: Dict[ToolCategory, List[ToolDefinition]] = {}
+        for tool in self._tools.values():
+            if tool.category not in by_category:
+                by_category[tool.category] = []
+            by_category[tool.category].append(tool)
+        
+        for category, tools in by_category.items():
+            lines.append(f"\n{category.value.upper()} TOOLS:")
+            for tool in tools:
+                args = ", ".join(tool.required_args)
+                lines.append(f"  - {tool.name}({args}): {tool.description}")
+        
         return "\n".join(lines)
     
-    def _log_execution(self, tool: str, args: Dict, result: Dict):
-        """Log tool execution"""
-        self.execution_log.append({
-            "tool": tool,
-            "args": args,
-            "success": result.get("success", False),
-            "error": result.get("error")
-        })
-    
-    def get_execution_stats(self) -> Dict:
-        """Get execution statistics"""
-        success_count = sum(1 for e in self.execution_log if e["success"])
+    def get_status(self) -> Dict[str, Any]:
+        """Get server status"""
         return {
-            "total_executions": self.execution_count,
-            "successful": success_count,
-            "failed": self.execution_count - success_count,
-            "tools_registered": len(self.tools)
+            "tools_registered": len(self._tools),
+            "total_executions": self._execution_count,
+            "categories": list(set(t.category.value for t in self._tools.values()))
         }
+    
+    def get_execution_log(self, limit: int = 50) -> List[Dict]:
+        """Get recent execution log"""
+        return self._execution_log[-limit:]
 
 
 # Global MCP server instance
-_mcp_instance = None
+_mcp_server: Optional[MCPServer] = None
 
 def get_mcp_server() -> MCPServer:
-    """Get the global MCP server instance"""
-    global _mcp_instance
-    if _mcp_instance is None:
-        _mcp_instance = MCPServer()
-    return _mcp_instance
+    """Get or create the global MCP server"""
+    global _mcp_server
+    if _mcp_server is None:
+        _mcp_server = MCPServer()
+    return _mcp_server
+
+def register_tool(name: str, description: str, category: ToolCategory,
+                  handler: Callable, required_args: List[str],
+                  optional_args: List[str] = None):
+    """Helper to register a tool"""
+    server = get_mcp_server()
+    tool = ToolDefinition(
+        name=name,
+        description=description,
+        category=category,
+        handler=handler,
+        required_args=required_args,
+        optional_args=optional_args
+    )
+    server.register_tool(tool)

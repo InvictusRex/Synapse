@@ -1,3 +1,4 @@
 #!/bin/bash
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-python "$SCRIPT_DIR/cli.py" "$@"
+# Synapse CLI Launcher for Mac/Linux
+cd "$(dirname "$0")"
+python3 cli.py

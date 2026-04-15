@@ -1,8 +1,9 @@
 """
 Interaction Agent
-Handles user input, clarifies intent, structures requests
+Handles user input interpretation and response formatting
 """
 import json
+import re
 from typing import Dict, Any, Optional
 
 from agents.base_agent import BaseAgent, AgentConfig
@@ -15,46 +16,50 @@ class InteractionAgent(BaseAgent):
     Interaction Agent
     
     Responsibilities:
-    - Receive and parse user input
-    - Clarify ambiguous requests
-    - Structure requests for the Planner
-    - Return final results to user
+    - Interpret natural language input
+    - Detect intent and extract entities
+    - Format responses for users
+    - Handle conversational flow
     """
     
     def __init__(self):
         config = AgentConfig(
             name="Interaction Agent",
-            description="I handle user communication. I parse requests, clarify intent, and deliver results.",
+            description="I interpret user requests and format responses. I'm the interface between humans and the system.",
             capabilities=[
-                "Parse natural language requests",
-                "Identify user intent",
-                "Structure requests for planning",
-                "Format and present results"
+                "Natural language understanding",
+                "Intent detection",
+                "Entity extraction",
+                "Response formatting",
+                "Conversation management"
             ],
-            tool_categories=[]  # No direct tool access - works through other agents
+            tool_categories=[]
         )
         super().__init__(config)
     
-    def process_user_input(self, user_input: str) -> Dict[str, Any]:
+    def interpret_input(self, user_input: str) -> Dict[str, Any]:
         """
-        Process raw user input and structure it
+        Interpret user input and extract structured information
         """
-        prompt = f"""Parse this user request and extract structured information.
+        prompt = f"""Analyze this user request and extract structured information.
 
-USER INPUT: {user_input}
+USER INPUT: "{user_input}"
 
-Respond with ONLY this JSON structure:
+Respond with ONLY a JSON object:
 {{
-    "intent": "what the user wants to accomplish",
+    "intent": "create_file|read_file|list_directory|search|generate_content|web_fetch|system_info|calculate|greeting|other",
     "entities": {{
-        "files": ["any files mentioned"],
-        "paths": ["any paths mentioned"],
-        "urls": ["any URLs mentioned"],
-        "topics": ["any topics/subjects mentioned"]
+        "paths": ["list of file/folder paths mentioned"],
+        "filenames": ["list of filenames"],
+        "urls": ["list of URLs"],
+        "content_type": "poem|story|code|text|summary|etc if content generation",
+        "topic": "main topic or subject"
     }},
-    "task_type": "file_operation|content_generation|web_task|system_task|data_task|mixed",
-    "complexity": "simple|moderate|complex",
-    "structured_request": "clear, actionable description of what needs to be done"
+    "requires_content_generation": true/false,
+    "requires_file_operation": true/false,
+    "requires_web_access": true/false,
+    "requires_system_access": true/false,
+    "original_input": "{user_input}"
 }}
 
 JSON ONLY:"""
@@ -62,50 +67,87 @@ JSON ONLY:"""
         response = self.think(prompt)
         
         try:
-            import re
             match = re.search(r'\{[\s\S]*\}', response)
             if match:
-                parsed = json.loads(match.group())
-                parsed["original_input"] = user_input
-                return {"success": True, "parsed": parsed}
+                result = json.loads(match.group())
+                result["original_input"] = user_input
+                return {"success": True, "interpretation": result}
         except:
             pass
         
-        # Fallback - pass through
+        # Fallback: basic interpretation
         return {
             "success": True,
-            "parsed": {
-                "intent": user_input,
-                "task_type": "mixed",
-                "complexity": "moderate",
-                "structured_request": user_input,
+            "interpretation": {
+                "intent": "other",
+                "entities": {},
+                "requires_content_generation": True,
+                "requires_file_operation": False,
+                "requires_web_access": False,
+                "requires_system_access": False,
                 "original_input": user_input
             }
         }
     
-    def format_result(self, result: Dict) -> str:
-        """Format execution result for user"""
-        prompt = f"""Format this result for the user in a clear, friendly way.
-
-RESULT: {json.dumps(result, indent=2)}
-
-Provide a clear summary. If there's content, show it. If there's an error, explain it helpfully.
-Keep it concise but informative."""
-
-        return self.think(prompt)
+    def format_response(self, result: Dict, original_request: str = "") -> str:
+        """Format execution result for user display"""
+        if not result.get("success", False):
+            error = result.get("error", "Unknown error occurred")
+            return f"Failed: {error}"
+        
+        parts = []
+        
+        # Task summary
+        completed = result.get("tasks_completed", 0)
+        total = result.get("tasks_total", 0)
+        
+        if total > 0:
+            parts.append(f"Completed {completed}/{total} tasks")
+        
+        # Content outputs
+        outputs = result.get("all_outputs", [])
+        for output in outputs:
+            content = output.get("content")
+            if content:
+                if isinstance(content, dict):
+                    # Handle dict content
+                    if "content" in content:
+                        parts.append(str(content["content"]))
+                    elif "result" in content:
+                        parts.append(str(content["result"]))
+                    else:
+                        parts.append(json.dumps(content, indent=2))
+                else:
+                    parts.append(str(content))
+        
+        # File operations
+        task_states = result.get("task_states", {})
+        for task_id, state in task_states.items():
+            if state.get("status") == "completed":
+                task_result = state.get("result", {})
+                if task_result.get("filepath"):
+                    parts.append(f"File: {task_result['filepath']}")
+        
+        return "\n".join(parts) if parts else "Task completed"
     
     def handle_task(self, task: Dict) -> Dict[str, Any]:
-        """Handle a task (parse user input)"""
-        if "user_input" in task:
-            return self.process_user_input(task["user_input"])
-        return {"success": False, "error": "No user_input provided"}
+        """Handle interpretation request"""
+        if "input" in task:
+            return self.interpret_input(task["input"])
+        if "format" in task:
+            formatted = self.format_response(task["format"], task.get("original", ""))
+            return {"success": True, "formatted": formatted}
+        return {"success": False, "error": "No input provided"}
     
     def handle_message(self, message: Message) -> Optional[Dict]:
         """Handle incoming messages"""
         if message.msg_type == MessageType.TASK_REQUEST:
-            return self.handle_task(message.payload)
-        elif message.msg_type == MessageType.TASK_RESULT:
-            # Format result for user
-            formatted = self.format_result(message.payload)
-            return {"formatted_result": formatted, "raw_result": message.payload}
+            result = self.handle_task(message.payload)
+            self.send_message(
+                message.sender,
+                MessageType.TASK_RESULT,
+                result,
+                message.id
+            )
+            return result
         return None

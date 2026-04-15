@@ -12,17 +12,36 @@ import math
 from datetime import datetime
 from typing import Dict, Any, List
 
-from mcp.server import get_mcp_server, ToolCategory
+from mcp.server import get_mcp_server, ToolCategory, ToolDefinition
 
 
 # ============================================================
 # HELPER FUNCTIONS
 # ============================================================
 
+# Common paths
+HOME_DIR = os.path.expanduser("~")
+DESKTOP = os.path.join(HOME_DIR, "Desktop")
+DOCUMENTS = os.path.join(HOME_DIR, "Documents")
+DOWNLOADS = os.path.join(HOME_DIR, "Downloads")
+
+
 def resolve_path(filepath: str) -> str:
-    """Resolve path - handles ~, relative paths"""
+    """Resolve path - handles ~, relative paths, and common folder names"""
     if not filepath:
         return ""
+    
+    filepath = filepath.strip()
+    
+    # Handle common folder names at the start of path
+    lower_path = filepath.lower()
+    if lower_path == "desktop" or lower_path.startswith("desktop/") or lower_path.startswith("desktop\\"):
+        filepath = filepath.replace(filepath[:7], DESKTOP, 1)
+    elif lower_path == "documents" or lower_path.startswith("documents/") or lower_path.startswith("documents\\"):
+        filepath = filepath.replace(filepath[:9], DOCUMENTS, 1)
+    elif lower_path == "downloads" or lower_path.startswith("downloads/") or lower_path.startswith("downloads\\"):
+        filepath = filepath.replace(filepath[:9], DOWNLOADS, 1)
+    
     filepath = os.path.expanduser(filepath)
     filepath = os.path.abspath(filepath)
     filepath = os.path.normpath(filepath)
@@ -100,18 +119,25 @@ def list_directory(directory: str) -> Dict[str, Any]:
         
         items = []
         for name in os.listdir(directory):
-            path = os.path.join(directory, name)
-            try:
-                stat = os.stat(path)
-                items.append({
-                    "name": name,
-                    "type": "folder" if os.path.isdir(path) else "file",
-                    "size": format_size(stat.st_size) if os.path.isfile(path) else "-"
-                })
-            except:
-                items.append({"name": name, "type": "unknown", "size": "-"})
+            full_path = os.path.join(directory, name)
+            is_dir = os.path.isdir(full_path)
+            
+            item = {
+                "name": name,
+                "type": "folder" if is_dir else "file",
+                "path": full_path
+            }
+            
+            if not is_dir:
+                try:
+                    item["size"] = format_size(os.path.getsize(full_path))
+                except:
+                    item["size"] = "?"
+            
+            items.append(item)
         
         items.sort(key=lambda x: (x["type"] != "folder", x["name"].lower()))
+        
         return {"success": True, "directory": directory, "items": items, "count": len(items)}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -122,29 +148,24 @@ def delete_file(filepath: str) -> Dict[str, Any]:
     try:
         filepath = resolve_path(filepath)
         if not os.path.exists(filepath):
-            return {"success": False, "error": f"Not found: {filepath}"}
-        if os.path.isdir(filepath):
-            return {"success": False, "error": "Use delete_folder for directories"}
+            return {"success": False, "error": f"File not found: {filepath}"}
+        
         os.remove(filepath)
         return {"success": True, "deleted": filepath}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
-def delete_folder(folder_path: str, recursive: bool = False) -> Dict[str, Any]:
+def delete_folder(folder_path: str) -> Dict[str, Any]:
     """Delete a folder"""
     try:
         folder_path = resolve_path(folder_path)
         if not os.path.exists(folder_path):
-            return {"success": False, "error": f"Not found: {folder_path}"}
-        if recursive:
-            shutil.rmtree(folder_path)
-        else:
-            os.rmdir(folder_path)
+            return {"success": False, "error": f"Folder not found: {folder_path}"}
+        
+        shutil.rmtree(folder_path)
         return {"success": True, "deleted": folder_path}
-    except OSError as e:
-        if "not empty" in str(e).lower():
-            return {"success": False, "error": "Folder not empty. Use recursive=True"}
+    except Exception as e:
         return {"success": False, "error": str(e)}
 
 
@@ -153,8 +174,10 @@ def move_file(source: str, destination: str) -> Dict[str, Any]:
     try:
         source = resolve_path(source)
         destination = resolve_path(destination)
+        
         if not os.path.exists(source):
             return {"success": False, "error": f"Source not found: {source}"}
+        
         shutil.move(source, destination)
         return {"success": True, "source": source, "destination": destination}
     except Exception as e:
@@ -166,62 +189,59 @@ def copy_file(source: str, destination: str) -> Dict[str, Any]:
     try:
         source = resolve_path(source)
         destination = resolve_path(destination)
+        
         if not os.path.exists(source):
             return {"success": False, "error": f"Source not found: {source}"}
+        
         if os.path.isdir(source):
             shutil.copytree(source, destination)
         else:
             shutil.copy2(source, destination)
+        
         return {"success": True, "source": source, "destination": destination}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
 def search_files(directory: str, pattern: str) -> Dict[str, Any]:
-    """Search for files matching pattern"""
-    import fnmatch
+    """Search for files matching a pattern"""
     try:
+        import fnmatch
         directory = resolve_path(directory)
+        
         if not os.path.exists(directory):
             return {"success": False, "error": f"Directory not found: {directory}"}
         
         matches = []
         for root, dirs, files in os.walk(directory):
-            for name in fnmatch.filter(files, pattern):
-                matches.append(os.path.join(root, name))
-            if len(matches) > 100:
+            for name in files:
+                if fnmatch.fnmatch(name.lower(), pattern.lower()):
+                    matches.append(os.path.join(root, name))
+            
+            if len(matches) >= 100:
                 break
         
-        return {"success": True, "pattern": pattern, "matches": matches[:100], "count": len(matches)}
+        return {"success": True, "pattern": pattern, "matches": matches, "count": len(matches)}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
 # ============================================================
-# CONTENT GENERATION TOOLS
+# CONTENT TOOLS
 # ============================================================
 
 def generate_text(prompt: str, max_length: str = "medium") -> Dict[str, Any]:
-    """Generate text using LLM"""
+    """Generate text using LLM pool"""
     try:
-        api_key = os.environ.get("GROQ_API_KEY")
-        if not api_key:
-            return {"success": False, "error": "GROQ_API_KEY not set"}
+        from llm import get_llm_pool
+        pool = get_llm_pool()
         
-        from groq import Groq
-        client = Groq(api_key=api_key)
+        response = pool.generate(prompt)
         
-        tokens = {"short": 500, "medium": 1500, "long": 3000}.get(max_length, 1500)
-        
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=tokens,
-            temperature=0.7
-        )
-        
-        content = response.choices[0].message.content
-        return {"success": True, "content": content, "length": len(content)}
+        if response.success:
+            return {"success": True, "content": response.content, "length": len(response.content)}
+        else:
+            return {"success": False, "error": response.error}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -263,23 +283,23 @@ def fetch_webpage(url: str) -> Dict[str, Any]:
 
 
 def download_file(url: str, save_path: str) -> Dict[str, Any]:
-    """Download file from URL"""
+    """Download a file from URL"""
     try:
         import requests
         
         save_path = resolve_path(save_path)
-        parent = os.path.dirname(save_path)
-        if parent and not os.path.exists(parent):
-            os.makedirs(parent, exist_ok=True)
         
         response = requests.get(url, timeout=60, stream=True)
         response.raise_for_status()
         
+        os.makedirs(os.path.dirname(save_path) or '.', exist_ok=True)
+        
         with open(save_path, 'wb') as f:
-            for chunk in response.iter_content(8192):
+            for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
         
-        return {"success": True, "url": url, "saved_to": save_path, "size": format_size(os.path.getsize(save_path))}
+        size = os.path.getsize(save_path)
+        return {"success": True, "url": url, "saved_to": save_path, "size": format_size(size)}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -288,69 +308,26 @@ def download_file(url: str, save_path: str) -> Dict[str, Any]:
 # SYSTEM TOOLS
 # ============================================================
 
-# POSIX command mappings for Windows
-POSIX_TO_WINDOWS = {
-    "ls": "dir",
-    "pwd": "cd",
-    "cat": "type",
-    "rm": "del",
-    "cp": "copy",
-    "mv": "move",
-    "mkdir": "mkdir",
-    "rmdir": "rmdir",
-    "clear": "cls",
-    "grep": "findstr",
-    "touch": "type nul >",
-    "head": "more",
-    "tail": "more",
-    "which": "where",
-    "whoami": "whoami",
-    "echo": "echo",
-}
-
-def run_command(command: str, cwd: str = None) -> Dict[str, Any]:
-    """Run shell command with POSIX compatibility on Windows"""
+def run_command(command: str) -> Dict[str, Any]:
+    """Run a shell command"""
     try:
-        original_command = command
-        
-        # Handle POSIX commands on Windows
-        if platform.system() == "Windows":
-            cmd_parts = command.strip().split()
-            if cmd_parts:
-                base_cmd = cmd_parts[0].lower()
-                
-                # Special handling for common POSIX commands
-                if base_cmd == "pwd":
-                    return get_cwd()
-                elif base_cmd == "ls":
-                    # Convert ls to dir with args handling
-                    args = cmd_parts[1:] if len(cmd_parts) > 1 else ["."]
-                    path = args[-1] if args and not args[-1].startswith("-") else "."
-                    return list_directory(path)
-                elif base_cmd == "cat" and len(cmd_parts) > 1:
-                    return read_file(cmd_parts[1])
-                elif base_cmd in POSIX_TO_WINDOWS:
-                    cmd_parts[0] = POSIX_TO_WINDOWS[base_cmd]
-                    command = " ".join(cmd_parts)
-        
-        # Set working directory
-        work_dir = cwd if cwd else os.getcwd()
+        is_windows = platform.system() == "Windows"
         
         result = subprocess.run(
-            command, 
-            shell=True, 
-            capture_output=True, 
-            text=True, 
-            timeout=60,
-            cwd=work_dir
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=os.getcwd()
         )
+        
         return {
             "success": result.returncode == 0,
-            "command": original_command,
+            "command": command,
             "stdout": result.stdout,
             "stderr": result.stderr,
-            "return_code": result.returncode,
-            "cwd": work_dir
+            "return_code": result.returncode
         }
     except subprocess.TimeoutExpired:
         return {"success": False, "error": "Command timed out"}
@@ -360,171 +337,259 @@ def run_command(command: str, cwd: str = None) -> Dict[str, Any]:
 
 def get_cwd() -> Dict[str, Any]:
     """Get current working directory"""
-    cwd = os.getcwd()
-    return {
-        "success": True,
-        "cwd": cwd,
-        "path": cwd
-    }
+    try:
+        cwd = os.getcwd()
+        return {"success": True, "cwd": cwd, "path": cwd}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 def get_system_info() -> Dict[str, Any]:
     """Get system information"""
-    return {
-        "success": True,
-        "os": platform.system(),
-        "version": platform.version(),
-        "machine": platform.machine(),
-        "python": platform.python_version(),
-        "home": os.path.expanduser("~"),
-        "cwd": os.getcwd()
-    }
+    try:
+        import socket
+        
+        info = {
+            "platform": platform.system(),
+            "platform_release": platform.release(),
+            "platform_version": platform.version(),
+            "architecture": platform.machine(),
+            "hostname": socket.gethostname(),
+            "processor": platform.processor(),
+            "python_version": platform.python_version(),
+            "cwd": os.getcwd()
+        }
+        
+        # Try to get more info
+        try:
+            import psutil
+            info["cpu_count"] = psutil.cpu_count()
+            info["memory_total"] = format_size(psutil.virtual_memory().total)
+            info["memory_available"] = format_size(psutil.virtual_memory().available)
+        except ImportError:
+            info["cpu_count"] = os.cpu_count()
+        
+        return {"success": True, **info}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 def get_datetime() -> Dict[str, Any]:
-    """Get current date/time"""
+    """Get current date and time"""
     now = datetime.now()
     return {
         "success": True,
-        "datetime": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "datetime": now.isoformat(),
         "date": now.strftime("%Y-%m-%d"),
-        "time": now.strftime("%H:%M:%S")
+        "time": now.strftime("%H:%M:%S"),
+        "day": now.strftime("%A"),
+        "timezone": str(now.astimezone().tzinfo)
     }
 
 
 def calculate(expression: str) -> Dict[str, Any]:
-    """Calculate math expression"""
+    """Calculate a math expression"""
     try:
-        safe = {
-            "abs": abs, "round": round, "min": min, "max": max,
-            "sqrt": math.sqrt, "sin": math.sin, "cos": math.cos,
-            "tan": math.tan, "log": math.log, "pi": math.pi, "e": math.e
+        allowed_chars = set('0123456789+-*/().^ ')
+        expr_clean = expression.replace('^', '**')
+        
+        if not all(c in allowed_chars or c.isalpha() for c in expression):
+            return {"success": False, "error": "Invalid characters in expression"}
+        
+        allowed_names = {
+            'abs': abs, 'round': round, 'min': min, 'max': max,
+            'sum': sum, 'pow': pow,
+            'sqrt': math.sqrt, 'sin': math.sin, 'cos': math.cos,
+            'tan': math.tan, 'log': math.log, 'log10': math.log10,
+            'pi': math.pi, 'e': math.e
         }
-        result = eval(expression, {"__builtins__": {}}, safe)
+        
+        result = eval(expr_clean, {"__builtins__": {}}, allowed_names)
         return {"success": True, "expression": expression, "result": result}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
 # ============================================================
-# DATA FILE TOOLS
+# DATA TOOLS
 # ============================================================
 
 def read_json(filepath: str) -> Dict[str, Any]:
-    """Read JSON file"""
+    """Read a JSON file"""
     try:
         filepath = resolve_path(filepath)
         with open(filepath, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        return {"success": True, "data": data}
+        return {"success": True, "filepath": filepath, "data": data}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
 def write_json(filepath: str, data: Any) -> Dict[str, Any]:
-    """Write JSON file"""
+    """Write data to a JSON file"""
     try:
         filepath = resolve_path(filepath)
-        parent = os.path.dirname(filepath)
-        if parent and not os.path.exists(parent):
-            os.makedirs(parent, exist_ok=True)
+        os.makedirs(os.path.dirname(filepath) or '.', exist_ok=True)
+        
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
+        
         return {"success": True, "filepath": filepath}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
 def read_csv(filepath: str) -> Dict[str, Any]:
-    """Read CSV file"""
+    """Read a CSV file"""
     try:
-        import pandas as pd
+        import csv
         filepath = resolve_path(filepath)
-        df = pd.read_csv(filepath, nrows=1000)
+        
+        with open(filepath, 'r', encoding='utf-8', newline='') as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+        
+        return {"success": True, "filepath": filepath, "rows": rows, "count": len(rows)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def write_csv(filepath: str, rows: List[Dict], headers: List[str] = None) -> Dict[str, Any]:
+    """Write data to a CSV file"""
+    try:
+        import csv
+        filepath = resolve_path(filepath)
+        os.makedirs(os.path.dirname(filepath) or '.', exist_ok=True)
+        
+        if not rows:
+            return {"success": False, "error": "No data to write"}
+        
+        fieldnames = headers or list(rows[0].keys())
+        
+        with open(filepath, 'w', encoding='utf-8', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+        
+        return {"success": True, "filepath": filepath, "rows_written": len(rows)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ============================================================
+# MEMORY TOOLS
+# ============================================================
+
+def memory_store(content: str, metadata: Dict = None) -> Dict[str, Any]:
+    """Store content in persistent memory"""
+    try:
+        from memory import get_persistent_memory
+        memory = get_persistent_memory()
+        entry_id = memory.store(content, metadata)
+        return {"success": True, "entry_id": entry_id}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def memory_search(query: str, limit: int = 5) -> Dict[str, Any]:
+    """Search persistent memory"""
+    try:
+        from memory import get_persistent_memory
+        memory = get_persistent_memory()
+        results = memory.search(query, limit)
         return {
             "success": True,
-            "columns": df.columns.tolist(),
-            "rows": len(df),
-            "preview": df.head(10).to_string()
+            "results": [{"id": r.id, "content": r.content, "metadata": r.metadata} for r in results],
+            "count": len(results)
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
-def write_csv(filepath: str, data: List[Dict]) -> Dict[str, Any]:
-    """Write CSV file"""
+def memory_retrieve(entry_id: str) -> Dict[str, Any]:
+    """Retrieve a memory entry by ID"""
     try:
-        import pandas as pd
-        filepath = resolve_path(filepath)
-        df = pd.DataFrame(data)
-        df.to_csv(filepath, index=False)
-        return {"success": True, "filepath": filepath, "rows": len(data)}
+        from memory import get_persistent_memory
+        memory = get_persistent_memory()
+        entry = memory.retrieve(entry_id)
+        if entry:
+            return {"success": True, "content": entry.content, "metadata": entry.metadata}
+        return {"success": False, "error": "Entry not found"}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
 # ============================================================
-# REGISTER ALL TOOLS
+# TOOL REGISTRATION
 # ============================================================
 
 def register_all_tools():
-    """Register all tools with MCP server"""
-    mcp = get_mcp_server()
+    """Register all tools with the MCP server"""
+    server = get_mcp_server()
     
-    # Filesystem tools
-    mcp.register_tool("read_file", "Read content from a file", ToolCategory.FILESYSTEM,
-                      {"filepath": "string"}, ["filepath"], read_file)
-    mcp.register_tool("write_file", "Write content to a file (creates file if it doesn't exist)", ToolCategory.FILESYSTEM,
-                      {"filepath": "string", "content": "string"}, ["filepath", "content"], write_file)
-    mcp.register_tool("create_file", "Create a new file with content (alias for write_file)", ToolCategory.FILESYSTEM,
-                      {"filepath": "string", "content": "string"}, ["filepath", "content"], write_file)
-    mcp.register_tool("create_folder", "Create a folder", ToolCategory.FILESYSTEM,
-                      {"folder_path": "string"}, ["folder_path"], create_folder)
-    mcp.register_tool("list_directory", "List directory contents", ToolCategory.FILESYSTEM,
-                      {"directory": "string"}, ["directory"], list_directory)
-    mcp.register_tool("delete_file", "Delete a file", ToolCategory.FILESYSTEM,
-                      {"filepath": "string"}, ["filepath"], delete_file)
-    mcp.register_tool("delete_folder", "Delete a folder", ToolCategory.FILESYSTEM,
-                      {"folder_path": "string", "recursive": "boolean"}, ["folder_path"], delete_folder)
-    mcp.register_tool("move_file", "Move file/folder", ToolCategory.FILESYSTEM,
-                      {"source": "string", "destination": "string"}, ["source", "destination"], move_file)
-    mcp.register_tool("copy_file", "Copy file/folder", ToolCategory.FILESYSTEM,
-                      {"source": "string", "destination": "string"}, ["source", "destination"], copy_file)
-    mcp.register_tool("search_files", "Search for files", ToolCategory.FILESYSTEM,
-                      {"directory": "string", "pattern": "string"}, ["directory", "pattern"], search_files)
+    tools = [
+        # Filesystem tools
+        ToolDefinition("read_file", "Read content from a file", ToolCategory.FILESYSTEM,
+                      read_file, ["filepath"]),
+        ToolDefinition("write_file", "Write content to a file", ToolCategory.FILESYSTEM,
+                      write_file, ["filepath", "content"]),
+        ToolDefinition("create_folder", "Create a folder", ToolCategory.FILESYSTEM,
+                      create_folder, ["folder_path"]),
+        ToolDefinition("list_directory", "List directory contents", ToolCategory.FILESYSTEM,
+                      list_directory, ["directory"]),
+        ToolDefinition("delete_file", "Delete a file", ToolCategory.FILESYSTEM,
+                      delete_file, ["filepath"]),
+        ToolDefinition("delete_folder", "Delete a folder", ToolCategory.FILESYSTEM,
+                      delete_folder, ["folder_path"]),
+        ToolDefinition("move_file", "Move a file or folder", ToolCategory.FILESYSTEM,
+                      move_file, ["source", "destination"]),
+        ToolDefinition("copy_file", "Copy a file or folder", ToolCategory.FILESYSTEM,
+                      copy_file, ["source", "destination"]),
+        ToolDefinition("search_files", "Search for files", ToolCategory.FILESYSTEM,
+                      search_files, ["directory", "pattern"]),
+        
+        # Content tools
+        ToolDefinition("generate_text", "Generate text content", ToolCategory.CONTENT,
+                      generate_text, ["prompt"], ["max_length"]),
+        ToolDefinition("summarize_text", "Summarize text", ToolCategory.CONTENT,
+                      summarize_text, ["text"]),
+        
+        # Web tools
+        ToolDefinition("fetch_webpage", "Fetch and extract webpage content", ToolCategory.WEB,
+                      fetch_webpage, ["url"]),
+        ToolDefinition("download_file", "Download a file from URL", ToolCategory.WEB,
+                      download_file, ["url", "save_path"]),
+        
+        # System tools
+        ToolDefinition("run_command", "Run a shell command", ToolCategory.SYSTEM,
+                      run_command, ["command"]),
+        ToolDefinition("get_cwd", "Get current working directory", ToolCategory.SYSTEM,
+                      get_cwd, []),
+        ToolDefinition("get_system_info", "Get system information", ToolCategory.SYSTEM,
+                      get_system_info, []),
+        ToolDefinition("get_datetime", "Get current date and time", ToolCategory.SYSTEM,
+                      get_datetime, []),
+        ToolDefinition("calculate", "Calculate a math expression", ToolCategory.SYSTEM,
+                      calculate, ["expression"]),
+        
+        # Data tools
+        ToolDefinition("read_json", "Read a JSON file", ToolCategory.DATA,
+                      read_json, ["filepath"]),
+        ToolDefinition("write_json", "Write data to JSON file", ToolCategory.DATA,
+                      write_json, ["filepath", "data"]),
+        ToolDefinition("read_csv", "Read a CSV file", ToolCategory.DATA,
+                      read_csv, ["filepath"]),
+        ToolDefinition("write_csv", "Write data to CSV file", ToolCategory.DATA,
+                      write_csv, ["filepath", "rows"], ["headers"]),
+        
+        # Memory tools
+        ToolDefinition("memory_store", "Store content in memory", ToolCategory.MEMORY,
+                      memory_store, ["content"], ["metadata"]),
+        ToolDefinition("memory_search", "Search memory", ToolCategory.MEMORY,
+                      memory_search, ["query"], ["limit"]),
+        ToolDefinition("memory_retrieve", "Retrieve memory by ID", ToolCategory.MEMORY,
+                      memory_retrieve, ["entry_id"]),
+    ]
     
-    # Content tools
-    mcp.register_tool("generate_text", "Generate text with AI", ToolCategory.CONTENT,
-                      {"prompt": "string", "max_length": "string"}, ["prompt"], generate_text)
-    mcp.register_tool("summarize_text", "Summarize text", ToolCategory.CONTENT,
-                      {"text": "string"}, ["text"], summarize_text)
-    
-    # Web tools
-    mcp.register_tool("fetch_webpage", "Fetch and extract webpage text", ToolCategory.WEB,
-                      {"url": "string"}, ["url"], fetch_webpage)
-    mcp.register_tool("download_file", "Download file from URL", ToolCategory.WEB,
-                      {"url": "string", "save_path": "string"}, ["url", "save_path"], download_file)
-    
-    # System tools
-    mcp.register_tool("run_command", "Run shell command (supports POSIX commands on Windows)", ToolCategory.SYSTEM,
-                      {"command": "string", "cwd": "string"}, ["command"], run_command)
-    mcp.register_tool("get_cwd", "Get current working directory (pwd)", ToolCategory.SYSTEM,
-                      {}, [], get_cwd)
-    mcp.register_tool("get_system_info", "Get system information", ToolCategory.SYSTEM,
-                      {}, [], get_system_info)
-    mcp.register_tool("get_datetime", "Get current date/time", ToolCategory.SYSTEM,
-                      {}, [], get_datetime)
-    mcp.register_tool("calculate", "Calculate math expression", ToolCategory.SYSTEM,
-                      {"expression": "string"}, ["expression"], calculate)
-    
-    # Data tools
-    mcp.register_tool("read_json", "Read JSON file", ToolCategory.DATA,
-                      {"filepath": "string"}, ["filepath"], read_json)
-    mcp.register_tool("write_json", "Write JSON file", ToolCategory.DATA,
-                      {"filepath": "string", "data": "any"}, ["filepath", "data"], write_json)
-    mcp.register_tool("read_csv", "Read CSV file", ToolCategory.DATA,
-                      {"filepath": "string"}, ["filepath"], read_csv)
-    mcp.register_tool("write_csv", "Write CSV file", ToolCategory.DATA,
-                      {"filepath": "string", "data": "array"}, ["filepath", "data"], write_csv)
-    
-    print(f"[MCP] Registered {len(mcp.tools)} tools")
+    server.register_tools(tools)
+    return len(tools)

@@ -1,189 +1,349 @@
 """
 Synapse - Multi-Agent System
-Main system that initializes and coordinates all agents
+Main orchestration class
 """
 import os
 import sys
-from typing import Dict, Any, Optional
+import json
+from typing import Dict, Any, Optional, Callable
 
-# Add parent to path
+# Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from core.a2a_bus import get_bus, reset_bus, Message, MessageType
-from mcp.server import get_mcp_server
-from tools.all_tools import register_all_tools
+from dotenv import load_dotenv
 
-from agents.interaction_agent import InteractionAgent
-from agents.planner_agent import PlannerAgent
-from agents.file_agent import FileAgent
-from agents.content_agent import ContentAgent
-from agents.web_agent import WebAgent
-from agents.system_agent import SystemAgent
-from agents.orchestrator_agent import OrchestratorAgent
+# Load .env from project directory
+env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+load_dotenv(env_path)
+
+from llm import init_llm_pool, get_llm_pool
+from mcp import get_mcp_server
+from memory import get_persistent_memory, get_vector_memory
+from core import get_bus
+from tools import register_all_tools
+from server import get_a2a_server, start_a2a_server, stop_a2a_server
+
+from agents import (
+    InteractionAgent, PlannerAgent, OrchestratorAgent,
+    FileAgent, ContentAgent, WebAgent, SystemAgent
+)
 
 
 class Synapse:
     """
-    Synapse Multi-Agent System
+    Synapse - Multi-Agent AI System
     
-    Architecture:
-    User → InteractionAgent → PlannerAgent → OrchestratorAgent → Worker Agents → Result
-    
-    All agents communicate via A2A Message Bus
-    All tools accessed via MCP Server
+    Features:
+    - Multi-LLM support with automatic fallback (Groq, Gemini)
+    - Parallel DAG execution for task planning
+    - Persistent memory for context retention
+    - A2A (Agent-to-Agent) communication bus
+    - MCP (Model Context Protocol) tool registry
+    - HTTP server for external integration
     """
     
-    def __init__(self):
-        print("=" * 50)
-        print("SYNAPSE - Multi-Agent System")
-        print("=" * 50)
+    def __init__(self, working_dir: str = None, parallel: bool = True, max_workers: int = 4):
+        """
+        Initialize Synapse
         
-        # Reset and initialize bus
-        reset_bus()
-        self.bus = get_bus()
+        Args:
+            working_dir: Working directory for file operations
+            parallel: Enable parallel task execution
+            max_workers: Max parallel workers
+        """
+        self.working_dir = working_dir or os.getcwd()
+        self.parallel = parallel
+        self.max_workers = max_workers
+        self.initialized = False
         
-        # Initialize MCP and register tools
-        self.mcp = get_mcp_server()
-        register_all_tools()
+        # Components
+        self.llm_pool = None
+        self.mcp_server = None
+        self.memory = None
+        self.vector_memory = None
+        self.bus = None
+        self.a2a_server = None
         
-        # Initialize all agents
-        print("\n[Synapse] Initializing agents...")
+        # Agents
+        self.interaction_agent = None
+        self.planner_agent = None
+        self.orchestrator_agent = None
+        self.file_agent = None
+        self.content_agent = None
+        self.web_agent = None
+        self.system_agent = None
+        
+        # Callbacks
+        self._progress_callback: Optional[Callable] = None
+        
+        # State
+        self.last_result = None
+        self.execution_log = []
+    
+    def initialize(self) -> bool:
+        """Initialize all components"""
+        try:
+            # Initialize LLM Pool
+            self.llm_pool = init_llm_pool()
+            
+            # Initialize MCP and register tools
+            self.mcp_server = get_mcp_server()
+            tools_count = register_all_tools()
+            
+            # Initialize memory
+            self.memory = get_persistent_memory()
+            self.vector_memory = get_vector_memory()
+            
+            # Initialize A2A bus
+            self.bus = get_bus()
+            
+            # Initialize A2A HTTP server (not started by default)
+            self.a2a_server = get_a2a_server()
+            
+            # Initialize agents
+            self._init_agents()
+            
+            self.initialized = True
+            return True
+            
+        except Exception as e:
+            print(f"[Synapse] Initialization failed: {e}")
+            return False
+    
+    def _init_agents(self):
+        """Initialize all agents"""
+        # Core agents
         self.interaction_agent = InteractionAgent()
         self.planner_agent = PlannerAgent()
+        self.orchestrator_agent = OrchestratorAgent(max_workers=self.max_workers)
+        
+        # Worker agents
         self.file_agent = FileAgent()
         self.content_agent = ContentAgent()
         self.web_agent = WebAgent()
         self.system_agent = SystemAgent()
-        self.orchestrator = OrchestratorAgent()
         
-        # Register worker agents with orchestrator (pass instances, not IDs)
-        self.orchestrator.register_worker_agent("file_agent", self.file_agent)
-        self.orchestrator.register_worker_agent("content_agent", self.content_agent)
-        self.orchestrator.register_worker_agent("web_agent", self.web_agent)
-        self.orchestrator.register_worker_agent("system_agent", self.system_agent)
+        # Register workers with orchestrator
+        self.orchestrator_agent.register_agent("file_agent", self.file_agent)
+        self.orchestrator_agent.register_agent("content_agent", self.content_agent)
+        self.orchestrator_agent.register_agent("web_agent", self.web_agent)
+        self.orchestrator_agent.register_agent("system_agent", self.system_agent)
+        
+        # Set working directory for planner
+        self.planner_agent.set_working_dir(self.working_dir)
         
         # Start all agents
-        for agent in self.get_all_agents():
+        for agent in [self.interaction_agent, self.planner_agent, self.orchestrator_agent,
+                      self.file_agent, self.content_agent, self.web_agent, self.system_agent]:
             agent.start()
-        
-        print("\n[Synapse] System ready!")
-        print(f"[Synapse] Registered agents: {self.bus.get_registered_agents()}")
-        print(f"[Synapse] Available tools: {len(self.mcp.tools)}")
-        print("=" * 50)
     
-    def get_all_agents(self) -> list:
-        """Get all agents"""
-        return [
-            self.interaction_agent,
-            self.planner_agent,
-            self.file_agent,
-            self.content_agent,
-            self.web_agent,
-            self.system_agent,
-            self.orchestrator
-        ]
+    def set_working_dir(self, working_dir: str):
+        """Set working directory"""
+        self.working_dir = working_dir
+        if self.planner_agent:
+            self.planner_agent.set_working_dir(working_dir)
+    
+    def set_progress_callback(self, callback: Callable[[str, str], None]):
+        """Set callback for progress updates: callback(stage, message)"""
+        self._progress_callback = callback
+    
+    def _notify_progress(self, stage: str, message: str):
+        """Notify progress"""
+        if self._progress_callback:
+            try:
+                self._progress_callback(stage, message)
+            except:
+                pass
     
     def process(self, user_input: str, working_dir: str = None) -> Dict[str, Any]:
         """
-        Process a user request through the multi-agent pipeline
+        Process a user request through the full pipeline
         
-        Flow:
-        1. InteractionAgent parses input
-        2. PlannerAgent creates execution plan
-        3. OrchestratorAgent executes plan via worker agents
-        4. InteractionAgent formats result
+        Pipeline:
+        1. Interaction Agent interprets input
+        2. Planner Agent creates DAG plan
+        3. Orchestrator Agent executes plan (parallel if possible)
+        4. Results aggregated and returned
         """
-        result = {
-            "input": user_input,
-            "stages": {},
-            "success": False
-        }
+        if not self.initialized:
+            if not self.initialize():
+                return {"success": False, "error": "System not initialized"}
         
-        # Set working directory if provided
         if working_dir:
-            self.planner_agent.set_working_dir(working_dir)
+            self.set_working_dir(working_dir)
         
         try:
-            # Stage 1: Parse user input
-            print("\n[Stage 1] Interaction Agent: Parsing input...")
-            parsed = self.interaction_agent.process_user_input(user_input)
-            result["stages"]["parsing"] = parsed
+            # Stage 1: Interpret input
+            self._notify_progress("interpret", "Analyzing request...")
+            interpretation = self.interaction_agent.interpret_input(user_input)
             
-            if not parsed.get("success"):
-                result["error"] = "Failed to parse input"
-                return result
+            if not interpretation.get("success"):
+                return {"success": False, "error": "Failed to interpret input"}
             
-            # Stage 2: Create execution plan
-            print("\n[Stage 2] Planner Agent: Creating plan...")
-            plan_result = self.planner_agent.create_plan(parsed.get("parsed", {}))
-            result["stages"]["planning"] = plan_result
+            request = interpretation.get("interpretation", {})
+            
+            # Stage 2: Create plan
+            self._notify_progress("plan", "Creating execution plan...")
+            plan_result = self.planner_agent.create_plan(request)
             
             if not plan_result.get("success"):
-                result["error"] = "Failed to create plan"
-                return result
+                return {
+                    "success": False, 
+                    "error": plan_result.get("error", "Planning failed"),
+                    "raw": plan_result.get("raw", "")
+                }
             
             plan = plan_result.get("plan", {})
-            print(f"[Stage 2] Plan created with {len(plan.get('tasks', []))} tasks")
+            
+            # Validate plan
+            validation = self.planner_agent.validate_plan(plan)
+            if not validation.get("valid"):
+                return {"success": False, "error": f"Invalid plan: {validation.get('errors')}"}
             
             # Stage 3: Execute plan
-            print("\n[Stage 3] Orchestrator: Executing plan...")
-            execution_result = self.orchestrator.execute_plan(plan)
-            result["stages"]["execution"] = execution_result
+            self._notify_progress("execute", "Executing tasks...")
+            execution_result = self.orchestrator_agent.execute_plan(plan, parallel=self.parallel)
             
-            # Stage 4: Format result
-            print("\n[Stage 4] Formatting result...")
-            formatted = self.interaction_agent.format_result(execution_result)
-            result["formatted_result"] = formatted
+            # Store in memory
+            self._store_execution(user_input, plan, execution_result)
             
-            result["success"] = execution_result.get("success", False)
-            result["final_output"] = execution_result.get("final_result", {})
+            # Format result
+            result = {
+                "success": execution_result.get("success", False),
+                "tasks_completed": execution_result.get("tasks_completed", 0),
+                "tasks_failed": execution_result.get("tasks_failed", 0),
+                "tasks_total": execution_result.get("tasks_total", 0),
+                "parallel_execution": execution_result.get("parallel_execution", False),
+                "plan": plan,
+                "task_states": execution_result.get("task_states", {}),
+                "all_outputs": execution_result.get("all_outputs", []),
+                "final_result": execution_result.get("final_result")
+            }
+            
+            self.last_result = result
+            self.execution_log.append({
+                "input": user_input,
+                "result": result
+            })
+            
+            return result
             
         except Exception as e:
-            result["error"] = str(e)
-            print(f"[Synapse] Error: {e}")
-        
-        return result
+            return {"success": False, "error": str(e)}
     
-    def set_working_dir(self, working_dir: str):
-        """Set the working directory for file operations"""
-        self.planner_agent.set_working_dir(working_dir)
+    def _store_execution(self, user_input: str, plan: Dict, result: Dict):
+        """Store execution in memory for future reference"""
+        try:
+            # Store in persistent memory
+            self.memory.store(
+                content=user_input,
+                metadata={
+                    "type": "execution",
+                    "plan_id": plan.get("plan_id"),
+                    "success": result.get("success"),
+                    "tasks": result.get("tasks_total", 0)
+                }
+            )
+            
+            # Store in vector memory for semantic search
+            self.vector_memory.store(
+                content=f"{user_input} - {plan.get('description', '')}",
+                metadata={"plan_id": plan.get("plan_id")}
+            )
+        except:
+            pass
+    
+    def search_memory(self, query: str, limit: int = 5) -> list:
+        """Search persistent memory"""
+        return self.memory.search(query, limit)
+    
+    def search_similar(self, query: str, limit: int = 5) -> list:
+        """Search vector memory for similar content"""
+        return self.vector_memory.search_similar(query, limit)
+    
+    # ==================== A2A Server ====================
+    
+    def start_server(self) -> bool:
+        """Start the A2A HTTP server"""
+        if self.a2a_server:
+            self.a2a_server.set_task_handler(self.process)
+            return self.a2a_server.start()
+        return False
+    
+    def stop_server(self):
+        """Stop the A2A HTTP server"""
+        if self.a2a_server:
+            self.a2a_server.stop()
+    
+    def is_server_running(self) -> bool:
+        """Check if A2A server is running"""
+        return self.a2a_server.is_running() if self.a2a_server else False
+    
+    def get_server_url(self) -> Optional[str]:
+        """Get A2A server URL"""
+        if self.a2a_server and self.a2a_server.is_running():
+            return f"http://{self.a2a_server.host}:{self.a2a_server.port}"
+        return None
+    
+    # ==================== Status ====================
     
     def get_status(self) -> Dict[str, Any]:
         """Get system status"""
-        return {
-            "agents": [agent.get_status() for agent in self.get_all_agents()],
-            "bus": {
-                "registered_agents": self.bus.get_registered_agents(),
-                "message_count": len(self.bus.message_log)
-            },
-            "mcp": self.mcp.get_execution_stats()
+        status = {
+            "initialized": self.initialized,
+            "working_dir": self.working_dir,
+            "parallel_enabled": self.parallel,
+            "max_workers": self.max_workers
         }
+        
+        if self.initialized:
+            status["llm_pool"] = self.llm_pool.get_stats() if self.llm_pool else None
+            status["mcp"] = self.mcp_server.get_status() if self.mcp_server else None
+            status["memory"] = self.memory.get_stats() if self.memory else None
+            status["vector_memory"] = self.vector_memory.get_stats() if self.vector_memory else None
+            status["a2a_bus"] = self.bus.get_stats() if self.bus else None
+            status["a2a_server"] = self.a2a_server.get_status() if self.a2a_server else None
+            
+            status["agents"] = {
+                "interaction": self.interaction_agent.get_status() if self.interaction_agent else None,
+                "planner": self.planner_agent.get_status() if self.planner_agent else None,
+                "orchestrator": self.orchestrator_agent.get_status() if self.orchestrator_agent else None,
+                "file": self.file_agent.get_status() if self.file_agent else None,
+                "content": self.content_agent.get_status() if self.content_agent else None,
+                "web": self.web_agent.get_status() if self.web_agent else None,
+                "system": self.system_agent.get_status() if self.system_agent else None
+            }
+        
+        return status
     
-    def get_message_history(self, limit: int = 50) -> list:
-        """Get A2A message history"""
-        return self.bus.get_message_history(limit)
+    def get_tools(self) -> list:
+        """Get all available tools"""
+        if self.mcp_server:
+            return self.mcp_server.tools_list()
+        return []
     
     def shutdown(self):
         """Shutdown the system"""
-        print("\n[Synapse] Shutting down...")
-        for agent in self.get_all_agents():
-            agent.stop()
-        print("[Synapse] Goodbye!")
+        # Stop server
+        self.stop_server()
+        
+        # Stop agents
+        agents = [self.interaction_agent, self.planner_agent, self.orchestrator_agent,
+                  self.file_agent, self.content_agent, self.web_agent, self.system_agent]
+        for agent in agents:
+            if agent:
+                agent.stop()
+        
+        # Shutdown LLM pool
+        if self.llm_pool:
+            self.llm_pool.shutdown()
+        
+        self.initialized = False
 
 
-# Global instance
-_synapse_instance = None
-
-def get_synapse() -> Synapse:
-    """Get or create Synapse instance"""
-    global _synapse_instance
-    if _synapse_instance is None:
-        _synapse_instance = Synapse()
-    return _synapse_instance
-
-def reset_synapse():
-    """Reset Synapse (for testing)"""
-    global _synapse_instance
-    if _synapse_instance:
-        _synapse_instance.shutdown()
-    _synapse_instance = None
+# Convenience function
+def create_synapse(working_dir: str = None, parallel: bool = True) -> Synapse:
+    """Create and initialize a Synapse instance"""
+    synapse = Synapse(working_dir=working_dir, parallel=parallel)
+    synapse.initialize()
+    return synapse
