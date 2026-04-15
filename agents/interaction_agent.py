@@ -43,6 +43,9 @@ class InteractionAgent(BaseAgent):
 
 USER INPUT: {user_input}
 
+If the input is gibberish, random characters, nonsensical, or cannot be mapped to any
+actionable task, set task_type to "unknown".
+
 Respond with ONLY this JSON structure:
 {{
     "intent": "what the user wants to accomplish",
@@ -52,7 +55,7 @@ Respond with ONLY this JSON structure:
         "urls": ["any URLs mentioned"],
         "topics": ["any topics/subjects mentioned"]
     }},
-    "task_type": "file_operation|content_generation|web_task|system_task|data_task|mixed",
+    "task_type": "file_operation|content_generation|web_task|system_task|data_task|mixed|unknown",
     "complexity": "simple|moderate|complex",
     "structured_request": "clear, actionable description of what needs to be done"
 }}

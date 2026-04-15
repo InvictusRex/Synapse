@@ -138,6 +138,13 @@ class Synapse:
                 result["error"] = "Failed to parse input"
                 return result
 
+            # Check for unknown/unactionable requests
+            if parsed.get("parsed", {}).get("task_type") == "unknown":
+                print("[Stage 1] Unknown request detected.")
+                result["error"] = "Unknown request"
+                result["formatted_result"] = "Unknown Request."
+                return result
+
             # Stage 2: Create execution plan
             print("\n[Stage 2] Planner Agent: Creating plan...")
             _notify("stage", {"stage": 2, "name": "planning", "description": "Creating execution plan"})

@@ -6,6 +6,7 @@ import os
 import sys
 import io
 import json
+import platform
 from datetime import datetime
 
 # Set working directory to where the tool is run from (not home)
@@ -61,6 +62,24 @@ STYLE_DIM = Style(color=Gruvbox.GRAY)
 STYLE_PROMPT = Style(color=Gruvbox.PURPLE, bold=True)
 
 console = Console()
+
+# On Linux, Rich's Prompt.ask() doesn't use readline, so arrow keys
+# emit raw escape sequences in terminals like alacritty and xfce4.
+# We use native input() on Linux (which has readline support) and
+# keep Rich's Prompt.ask() on Windows where it works fine.
+IS_LINUX = platform.system() != "Windows"
+
+
+def prompt_input(label: str, color: str = Gruvbox.PURPLE) -> str:
+    """Cross-platform prompt with arrow key support on Linux terminals."""
+    if IS_LINUX:
+        console.print(f"[{color}]{label}[/] ", end="")
+        try:
+            return input().strip()
+        except EOFError:
+            return ""
+    else:
+        return Prompt.ask(f"[{color}]{label}[/]", default="").strip()
 
 # ============================================================
 # LOGGING SYSTEM
@@ -347,7 +366,7 @@ def show_log_menu():
     console.print(f"\n[{Gruvbox.GRAY}]Enter log number to view details, or 'back' to return[/]\n")
     
     while True:
-        text = Prompt.ask(f"[{Gruvbox.PURPLE}]log[/]", default="").strip()
+        text = prompt_input("log", Gruvbox.PURPLE)
         text_lower = text.lower()
         
         if text_lower in ['back', 'exit', 'q', 'menu', '']:
@@ -625,11 +644,17 @@ def show_status(synapse):
 
 def display_result(result):
     try:
+        # Handle unknown requests
+        if result.get("error") == "Unknown request":
+            console.print(f"\n[{Gruvbox.YELLOW}]Unknown Request.[/]")
+            console.print(f"[{Gruvbox.GRAY}]Could not identify an actionable task. Try rephrasing your request.[/]\n")
+            return
+
         exec_result = result.get("stages", {}).get("execution", {})
         tasks_completed = exec_result.get("tasks_completed", 0)
         tasks_failed = exec_result.get("tasks_failed", 0)
         tasks_total = exec_result.get("tasks_total", 0)
-        
+
         if result.get("success"):
             if tasks_failed == 0:
                 console.print(f"\n[{Gruvbox.GREEN}]Completed: All {tasks_total} tasks successful[/]\n")
@@ -995,7 +1020,7 @@ def main():
     while True:
         try:
             console.print()
-            choice = Prompt.ask(f"[{Gruvbox.PURPLE}]synapse[/]", default="").strip()
+            choice = prompt_input("synapse", Gruvbox.PURPLE)
             choice_lower = choice.lower()
             
             if not choice:
@@ -1028,7 +1053,7 @@ def main():
                 console.print(f"\n[{Gruvbox.AQUA}]Task Execution Mode[/] [{Gruvbox.GRAY}](type 'back' to return)[/]")
                 
                 while True:
-                    text = Prompt.ask(f"[{Gruvbox.GREEN}]>[/]", default="").strip()
+                    text = prompt_input(">", Gruvbox.GREEN)
                     text_lower = text.lower()
                     
                     if text_lower in ['back', 'exit', 'menu', 'q', '']:
@@ -1063,7 +1088,7 @@ def main():
                 console.print(f"[{Gruvbox.GRAY}]Categories: {', '.join(CATEGORIES.keys())}[/]\n")
                 
                 while True:
-                    text = Prompt.ask(f"[{Gruvbox.GREEN}]category[/]", default="").strip().lower()
+                    text = prompt_input("category", Gruvbox.GREEN).lower()
                     
                     if text in ['back', 'exit', 'menu', 'q', '']:
                         break
