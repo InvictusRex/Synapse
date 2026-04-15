@@ -55,104 +55,104 @@ class PlannerAgent(BaseAgent):
         """
         # Get available tools from MCP
         mcp = get_mcp_server()
-        tools_desc = mcp.get_tools_for_prompt()
         
-        prompt = f"""Create an execution plan for this request.
+        # Extract key info from request
+        original_input = request.get("original_input", "")
+        intent = request.get("intent", "")
+        
+        prompt = f"""Create a JSON execution plan for this user request.
 
-SYSTEM PATHS:
-- Current Directory (DEFAULT for new files): {self.working_dir}
-- Home: {self.home_dir}
-- Desktop: {self.desktop}  
+USER REQUEST: "{original_input}"
+
+PATHS:
+- DEFAULT (no path mentioned): {self.working_dir}
+- Desktop: {self.desktop}
 - Documents: {self.documents}
 - Downloads: {self.downloads}
 
-AVAILABLE TOOLS (via specialized agents):
-{tools_desc}
+AGENTS AND TOOLS:
+- file_agent: read_file, write_file, create_folder, list_directory, move_file, copy_file, delete_file, search_files
+- content_agent: generate_text, summarize_text
+- web_agent: fetch_webpage, download_file  
+- system_agent: get_system_info, get_datetime, calculate, get_cwd, run_command
 
-AGENT ASSIGNMENTS:
-- file_agent: filesystem tools (read_file, write_file, create_file, list_directory, move_file, copy_file, etc.)
-- content_agent: content tools (generate_text, summarize_text) - ONLY for generating NEW content
-- web_agent: web tools (fetch_webpage, download_file)
-- system_agent: system tools (run_command, get_cwd, get_system_info, calculate, get_datetime)
+EXAMPLES:
 
-REQUEST:
-{json.dumps(request, indent=2)}
-
-CRITICAL RULES:
-1. PATH RESOLUTION (IMPORTANT):
-   - If user says "Desktop" → use EXACTLY: {self.desktop}
-   - If user says "Documents" → use EXACTLY: {self.documents}
-   - If user says "Downloads" → use EXACTLY: {self.downloads}
-   - If user says "on Desktop" or "in Desktop" or "to Desktop" → use {self.desktop}
-   - If user says "in a folder named X on Desktop" → use {self.desktop}/X
-   - If no location specified → use current directory: {self.working_dir}
-
-2. For "current directory" or "here" or "cwd" → use {self.working_dir}
-3. For "pwd" or "what directory" → use get_cwd tool
-4. Parse names correctly:
-   - "the templates folder" means folder named "templates" (NOT "templates folder")
-   - "a file called test.txt" means filename "test.txt"
-   - "move X from A to B" means source is A/X, destination is B/X
-
-FOLDER + FILE CREATION ORDER:
-- If creating a file in a NEW folder, create the folder FIRST (T1), then the file (T2)
-- Example: "save as haiku.txt in HAIKU folder on Desktop"
-  → T1: create_folder at {self.desktop}/HAIKU
-  → T2: write_file at {self.desktop}/HAIKU/haiku.txt (depends_on: T1)
-
-WHEN TO USE WHICH TOOL:
-- User provides EXACT content (e.g., "with content 'Hello'") → write_file directly
-- User wants NEW content created AND saved (e.g., "write article about X and save it") → generate_text then write_file
-- User wants to list/read files → file_agent only
-- User asks for pwd/cwd/current directory → system_agent.get_cwd
-- move_file: source=full path to file/folder, destination=full path where it should go
-
-DO NOT CREATE FILES FOR:
-- Conversational queries like "hello", "how are you", "what can you do"
-- Questions that just need information (use appropriate info tool instead)
-- Greetings or casual chat
-- If user doesn't explicitly ask to save/create/write a file, DON'T create one
-
-FOR CONVERSATIONAL/UNKNOWN QUERIES:
-- If the user asks a general question or greeting, use generate_text to provide a helpful response
-- Do NOT save the response to a file unless explicitly asked
-- Do NOT run echo commands or other debugging commands
-
-For write_file/create_file: ALWAYS include "filepath" and "content" arguments
-For move_file: include "source" (full path) and "destination" (full path)
-For tasks needing previous output: use {{TASK_ID.content}} in args
-
-Create a plan as JSON:
+Example 1: "get system info and save to info.txt"
 {{
-    "plan_id": "unique_id",
-    "description": "what this plan accomplishes",
-    "tasks": [
-        {{
-            "task_id": "T1",
-            "agent": "which agent handles this",
-            "tool": "tool_name",
-            "args": {{"arg1": "value1"}},
-            "description": "what this task does",
-            "depends_on": []
-        }}
-    ]
+  "plan_id": "plan_001",
+  "description": "Get system info and save to file",
+  "tasks": [
+    {{"task_id": "T1", "agent": "system_agent", "tool": "get_system_info", "args": {{}}, "description": "Get system information", "depends_on": []}},
+    {{"task_id": "T2", "agent": "file_agent", "tool": "write_file", "args": {{"filepath": "{self.working_dir}/info.txt", "content": "{{{{T1.result}}}}"}}, "description": "Save system info to file", "depends_on": ["T1"]}}
+  ]
 }}
 
-JSON ONLY:"""
+Example 2: "write a poem about stars and save as stars.txt"
+{{
+  "plan_id": "plan_002", 
+  "description": "Generate poem and save to file",
+  "tasks": [
+    {{"task_id": "T1", "agent": "content_agent", "tool": "generate_text", "args": {{"prompt": "Write a short poem about stars"}}, "description": "Generate poem about stars", "depends_on": []}},
+    {{"task_id": "T2", "agent": "file_agent", "tool": "write_file", "args": {{"filepath": "{self.working_dir}/stars.txt", "content": "{{{{T1.content}}}}"}}, "description": "Save poem to file", "depends_on": ["T1"]}}
+  ]
+}}
+
+Example 3: "create folder called Projects on Desktop"
+{{
+  "plan_id": "plan_003",
+  "description": "Create Projects folder on Desktop",
+  "tasks": [
+    {{"task_id": "T1", "agent": "file_agent", "tool": "create_folder", "args": {{"folder_path": "{self.desktop}/Projects"}}, "description": "Create Projects folder on Desktop", "depends_on": []}}
+  ]
+}}
+
+Example 4: "what time is it"
+{{
+  "plan_id": "plan_004",
+  "description": "Get current date and time",
+  "tasks": [
+    {{"task_id": "T1", "agent": "system_agent", "tool": "get_datetime", "args": {{}}, "description": "Get current date and time", "depends_on": []}}
+  ]
+}}
+
+Example 5: "list files in Documents"
+{{
+  "plan_id": "plan_005",
+  "description": "List files in Documents folder",
+  "tasks": [
+    {{"task_id": "T1", "agent": "file_agent", "tool": "list_directory", "args": {{"directory": "{self.documents}"}}, "description": "List contents of Documents", "depends_on": []}}
+  ]
+}}
+
+RULES:
+1. If NO path mentioned, use: {self.working_dir}
+2. If "Desktop" mentioned, use: {self.desktop}
+3. If "Documents" mentioned, use: {self.documents}
+4. For chained tasks, use {{{{T1.content}}}} or {{{{T1.result}}}} to reference previous output
+5. Create folder BEFORE writing file inside it
+6. For greetings like "hello", use content_agent generate_text
+
+Now create a plan for: "{original_input}"
+
+Respond with ONLY valid JSON, no other text:"""
 
         response = self.think(prompt, {"request": request})
         
         try:
             import re
+            # Try to find JSON in response
             match = re.search(r'\{[\s\S]*\}', response)
             if match:
                 plan = json.loads(match.group())
                 plan["status"] = "created"
                 return {"success": True, "plan": plan}
+        except json.JSONDecodeError as e:
+            return {"success": False, "error": f"Invalid JSON: {str(e)}", "raw_response": response}
         except Exception as e:
-            pass
+            return {"success": False, "error": str(e), "raw_response": response}
         
-        return {"success": False, "error": "Failed to create plan", "raw_response": response}
+        return {"success": False, "error": "Failed to create plan - no valid JSON found", "raw_response": response}
     
     def validate_plan(self, plan: Dict) -> Dict[str, Any]:
         """Validate a plan before execution"""
