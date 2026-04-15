@@ -288,20 +288,84 @@ def download_file(url: str, save_path: str) -> Dict[str, Any]:
 # SYSTEM TOOLS
 # ============================================================
 
-def run_command(command: str) -> Dict[str, Any]:
-    """Run shell command"""
+# POSIX command mappings for Windows
+POSIX_TO_WINDOWS = {
+    "ls": "dir",
+    "pwd": "cd",
+    "cat": "type",
+    "rm": "del",
+    "cp": "copy",
+    "mv": "move",
+    "mkdir": "mkdir",
+    "rmdir": "rmdir",
+    "clear": "cls",
+    "grep": "findstr",
+    "touch": "type nul >",
+    "head": "more",
+    "tail": "more",
+    "which": "where",
+    "whoami": "whoami",
+    "echo": "echo",
+}
+
+def run_command(command: str, cwd: str = None) -> Dict[str, Any]:
+    """Run shell command with POSIX compatibility on Windows"""
     try:
-        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=60)
+        original_command = command
+        
+        # Handle POSIX commands on Windows
+        if platform.system() == "Windows":
+            cmd_parts = command.strip().split()
+            if cmd_parts:
+                base_cmd = cmd_parts[0].lower()
+                
+                # Special handling for common POSIX commands
+                if base_cmd == "pwd":
+                    return get_cwd()
+                elif base_cmd == "ls":
+                    # Convert ls to dir with args handling
+                    args = cmd_parts[1:] if len(cmd_parts) > 1 else ["."]
+                    path = args[-1] if args and not args[-1].startswith("-") else "."
+                    return list_directory(path)
+                elif base_cmd == "cat" and len(cmd_parts) > 1:
+                    return read_file(cmd_parts[1])
+                elif base_cmd in POSIX_TO_WINDOWS:
+                    cmd_parts[0] = POSIX_TO_WINDOWS[base_cmd]
+                    command = " ".join(cmd_parts)
+        
+        # Set working directory
+        work_dir = cwd if cwd else os.getcwd()
+        
+        result = subprocess.run(
+            command, 
+            shell=True, 
+            capture_output=True, 
+            text=True, 
+            timeout=60,
+            cwd=work_dir
+        )
         return {
             "success": result.returncode == 0,
+            "command": original_command,
             "stdout": result.stdout,
             "stderr": result.stderr,
-            "return_code": result.returncode
+            "return_code": result.returncode,
+            "cwd": work_dir
         }
     except subprocess.TimeoutExpired:
         return {"success": False, "error": "Command timed out"}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+def get_cwd() -> Dict[str, Any]:
+    """Get current working directory"""
+    cwd = os.getcwd()
+    return {
+        "success": True,
+        "cwd": cwd,
+        "path": cwd
+    }
 
 
 def get_system_info() -> Dict[str, Any]:
@@ -442,8 +506,10 @@ def register_all_tools():
                       {"url": "string", "save_path": "string"}, ["url", "save_path"], download_file)
     
     # System tools
-    mcp.register_tool("run_command", "Run shell command", ToolCategory.SYSTEM,
-                      {"command": "string"}, ["command"], run_command)
+    mcp.register_tool("run_command", "Run shell command (supports POSIX commands on Windows)", ToolCategory.SYSTEM,
+                      {"command": "string", "cwd": "string"}, ["command"], run_command)
+    mcp.register_tool("get_cwd", "Get current working directory (pwd)", ToolCategory.SYSTEM,
+                      {}, [], get_cwd)
     mcp.register_tool("get_system_info", "Get system information", ToolCategory.SYSTEM,
                       {}, [], get_system_info)
     mcp.register_tool("get_datetime", "Get current date/time", ToolCategory.SYSTEM,

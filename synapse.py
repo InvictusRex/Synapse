@@ -83,7 +83,7 @@ class Synapse:
             self.orchestrator
         ]
     
-    def process(self, user_input: str) -> Dict[str, Any]:
+    def process(self, user_input: str, working_dir: str = None) -> Dict[str, Any]:
         """
         Process a user request through the multi-agent pipeline
         
@@ -98,6 +98,10 @@ class Synapse:
             "stages": {},
             "success": False
         }
+        
+        # Set working directory if provided
+        if working_dir:
+            self.planner_agent.set_working_dir(working_dir)
         
         try:
             # Stage 1: Parse user input
@@ -139,6 +143,10 @@ class Synapse:
             print(f"[Synapse] Error: {e}")
         
         return result
+    
+    def set_working_dir(self, working_dir: str):
+        """Set the working directory for file operations"""
+        self.planner_agent.set_working_dir(working_dir)
     
     def get_status(self) -> Dict[str, Any]:
         """Get system status"""

@@ -11,22 +11,23 @@ def main():
     print("  SYNAPSE - Windows Setup")
     print("="*50 + "\n")
     
-    # Get the directory where this script is located
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+    # Get the synapse root directory (parent of setup folder)
+    setup_dir = os.path.dirname(os.path.abspath(__file__))
+    synapse_dir = os.path.dirname(setup_dir)
     
     # Step 1: Install dependencies
     print("[1/3] Installing dependencies...")
     try:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", 
-                              os.path.join(script_dir, "requirements.txt"), "-q"])
+                              os.path.join(synapse_dir, "requirements.txt"), "-q"])
         print("      Done!\n")
     except subprocess.CalledProcessError:
         print("      Warning: Some dependencies may have failed to install\n")
     
     # Step 2: Create the batch file wrapper
     print("[2/3] Creating synapse.bat...")
-    bat_content = f'@echo off\npython "{os.path.join(script_dir, "cli.py")}" %*\n'
-    bat_path = os.path.join(script_dir, "synapse.bat")
+    bat_content = f'@echo off\npython "{os.path.join(synapse_dir, "cli.py")}" %*\n'
+    bat_path = os.path.join(synapse_dir, "synapse.bat")
     with open(bat_path, 'w') as f:
         f.write(bat_content)
     print("      Done!\n")
@@ -42,7 +43,7 @@ def main():
     os.makedirs(ps_profile_dir, exist_ok=True)
     
     # Alias line to add
-    alias_line = f'\n# Synapse CLI\nfunction synapse {{ python "{os.path.join(script_dir, "cli.py")}" @args }}\n'
+    alias_line = f'\n# Synapse CLI\nfunction synapse {{ python "{os.path.join(synapse_dir, "cli.py")}" @args }}\n'
     
     # Check if alias already exists
     existing_content = ""
@@ -67,7 +68,7 @@ To use Synapse:
   Option 1: Open a NEW PowerShell window and type:
             synapse
 
-  Option 2: From this folder, run:
+  Option 2: From the synapse folder, run:
             .\\synapse.bat
             
   Option 3: Run directly:

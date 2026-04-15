@@ -42,6 +42,11 @@ class PlannerAgent(BaseAgent):
         self.desktop = os.path.join(self.home_dir, "Desktop")
         self.documents = os.path.join(self.home_dir, "Documents")
         self.downloads = os.path.join(self.home_dir, "Downloads")
+        self.working_dir = os.getcwd()  # Default, can be overridden
+    
+    def set_working_dir(self, working_dir: str):
+        """Set the working directory for file operations"""
+        self.working_dir = working_dir
     
     def create_plan(self, request: Dict) -> Dict[str, Any]:
         """
@@ -55,6 +60,7 @@ class PlannerAgent(BaseAgent):
         prompt = f"""Create an execution plan for this request.
 
 SYSTEM PATHS:
+- Current Directory (DEFAULT for new files): {self.working_dir}
 - Home: {self.home_dir}
 - Desktop: {self.desktop}  
 - Documents: {self.documents}
@@ -67,15 +73,17 @@ AGENT ASSIGNMENTS:
 - file_agent: filesystem tools (read_file, write_file, create_file, list_directory, move_file, copy_file, etc.)
 - content_agent: content tools (generate_text, summarize_text) - ONLY for generating NEW content
 - web_agent: web tools (fetch_webpage, download_file)
-- system_agent: system tools (run_command, get_system_info, calculate, get_datetime)
+- system_agent: system tools (run_command, get_cwd, get_system_info, calculate, get_datetime)
 
 REQUEST:
 {json.dumps(request, indent=2)}
 
 CRITICAL RULES:
-1. Use ACTUAL paths from SYSTEM PATHS above
-2. Keep it SIMPLE - only include tasks the user explicitly asked for
-3. Parse names correctly:
+1. DEFAULT LOCATION: Create files/folders in Current Directory ({self.working_dir}) unless user specifies otherwise
+2. Only use Desktop/Documents/Downloads if user explicitly mentions them
+3. For "current directory" or "here" or "cwd" → use {self.working_dir}
+4. For "pwd" or "what directory" → use get_cwd tool
+5. Parse names correctly:
    - "the templates folder" means folder named "templates" (NOT "templates folder")
    - "a file called test.txt" means filename "test.txt"
    - "move X from A to B" means source is A/X, destination is B/X
@@ -84,6 +92,7 @@ WHEN TO USE WHICH TOOL:
 - User provides EXACT content (e.g., "with content 'Hello'") → write_file directly
 - User wants NEW content created (e.g., "write article about X") → generate_text then write_file
 - User wants to list/read files → file_agent only
+- User asks for pwd/cwd/current directory → system_agent.get_cwd
 - move_file: source=full path to file/folder, destination=full path where it should go
 
 For write_file/create_file: ALWAYS include "filepath" and "content" arguments
