@@ -1,16 +1,16 @@
 """
 Base Agent Class
-Foundation for all specialized agents
-Each agent has its own LLM for autonomous decision making
+Foundation for all specialized agents with LLM pool support
 """
-import os
 import json
+import re
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 
 from core.a2a_bus import get_bus, Message, MessageType, A2ABus
 from mcp.server import get_mcp_server, MCPServer, ToolCategory
+from llm import get_llm_pool, LLMPool
 
 
 @dataclass
@@ -30,7 +30,7 @@ class BaseAgent(ABC):
     - Has a unique ID and name
     - Connects to the A2A bus
     - Has access to MCP tools (filtered by category)
-    - Has its own LLM for reasoning
+    - Uses LLM pool for reasoning (with fallback)
     - Can send/receive messages
     - Makes autonomous decisions
     """
@@ -40,27 +40,20 @@ class BaseAgent(ABC):
         self.agent_id = config.name.lower().replace(" ", "_")
         self.bus: A2ABus = get_bus()
         self.mcp: MCPServer = get_mcp_server()
+        self.llm_pool: LLMPool = get_llm_pool()
         self.running = False
         self.message_history: List[Dict] = []
         
         # Register with bus
         self.bus.register_agent(self.agent_id)
-        print(f"[{self.agent_id}] Agent initialized")
     
     # ==================== LLM Reasoning ====================
     
-    def think(self, prompt: str, context: Dict = None) -> str:
+    def think(self, prompt: str, context: Dict = None, preferred_llm: str = None) -> str:
         """
-        Use LLM to reason about a situation
-        This is what makes each agent "intelligent"
+        Use LLM pool to reason about a situation
+        Automatically handles fallback between providers
         """
-        api_key = os.environ.get("GROQ_API_KEY")
-        if not api_key:
-            return "ERROR: No API key"
-        
-        from groq import Groq
-        client = Groq(api_key=api_key)
-        
         # Build system prompt based on agent identity
         system_prompt = f"""You are {self.config.name}, an autonomous AI agent.
 
@@ -77,19 +70,12 @@ CONTEXT:
 
 You must respond with clear, actionable decisions. Be autonomous - make decisions, don't ask for clarification."""
 
-        try:
-            response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=1500,
-                temperature=0.3
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            return f"ERROR: {str(e)}"
+        response = self.llm_pool.generate(prompt, system_prompt, preferred_llm)
+        
+        if response.success:
+            return response.content
+        else:
+            return f"ERROR: {response.error}"
     
     def decide_action(self, task: Dict) -> Dict[str, Any]:
         """
@@ -116,8 +102,6 @@ JSON ONLY:"""
         
         # Parse response
         try:
-            # Try to extract JSON
-            import re
             match = re.search(r'\{[\s\S]*\}', response)
             if match:
                 return json.loads(match.group())
@@ -147,7 +131,6 @@ JSON ONLY:"""
     
     def use_tool(self, tool_name: str, args: Dict) -> Dict[str, Any]:
         """Execute a tool via MCP"""
-        # Check if we have access to this tool
         my_tools = self._get_my_tools_list()
         if tool_name not in my_tools:
             return {
@@ -156,7 +139,6 @@ JSON ONLY:"""
             }
         
         result = self.mcp.tools_call(tool_name, args)
-        print(f"[{self.agent_id}] Tool {tool_name}: {'OK' if result.get('success') else 'FAIL'}")
         return result
     
     # ==================== Messaging ====================
@@ -202,18 +184,12 @@ JSON ONLY:"""
     
     @abstractmethod
     def handle_task(self, task: Dict) -> Dict[str, Any]:
-        """
-        Handle a task - each agent implements this differently
-        This is the main entry point for agent work
-        """
+        """Handle a task - each agent implements this differently"""
         pass
     
     @abstractmethod
     def handle_message(self, message: Message) -> Optional[Dict]:
-        """
-        Handle an incoming message
-        Returns response payload or None
-        """
+        """Handle an incoming message"""
         pass
     
     # ==================== Lifecycle ====================
@@ -221,13 +197,11 @@ JSON ONLY:"""
     def start(self):
         """Start the agent"""
         self.running = True
-        print(f"[{self.agent_id}] Started")
     
     def stop(self):
         """Stop the agent"""
         self.running = False
         self.bus.unregister_agent(self.agent_id)
-        print(f"[{self.agent_id}] Stopped")
     
     def get_status(self) -> Dict:
         """Get agent status"""

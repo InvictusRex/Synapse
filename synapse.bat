@@ -1,2 +1,5 @@
 @echo off
-python "%~dp0cli.py" %*
+REM Synapse CLI Launcher for Windows
+cd /d "%~dp0"
+python cli.py
+pause

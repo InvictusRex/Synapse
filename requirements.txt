@@ -1,7 +1,18 @@
-groq
-streamlit
-python-dotenv
-rich
-pandas
-requests
-beautifulsoup4
+# LLM Providers
+groq>=0.4.0
+google-genai>=0.1.0
+
+# Alternative Gemini SDK (fallback for older Python)
+# google-generativeai>=0.3.0
+
+# Web & CLI
+requests>=2.28.0
+beautifulsoup4>=4.12.0
+rich>=13.0.0
+
+# Utils
+python-dotenv>=1.0.0
+pandas>=1.5.0
+
+# Optional: System monitoring
+# psutil>=5.9.0
