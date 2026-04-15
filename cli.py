@@ -545,6 +545,7 @@ def show_menu():
     menu.add_row("\\[3]", "System status")
     menu.add_row("\\[4]", "View execution logs")
     menu.add_row("\\[5]", "View raw output")
+    menu.add_row("\\[6]", "Start A2A Protocol Server")
     menu.add_row("\\[h]", "Help")
     menu.add_row("\\[q]", "Quit")
     
@@ -578,6 +579,11 @@ The multi-agent system will plan and execute your request.
 Type 'log' to view detailed logs for the last executed prompt.
 Select option [4] to browse all previous execution logs.
 Select option [5] to view the raw JSON output.
+
+[{Gruvbox.AQUA}]A2A Protocol Server[/]
+Select option [6] to start the A2A HTTP server.
+Exposes REST API, SSE streaming, push notifications, and agent discovery.
+API docs at http://localhost:8000/docs when running.
 
 [{Gruvbox.AQUA}]Navigation[/]
 Type 'back' or press ESC to return to previous menu.
@@ -886,6 +892,57 @@ def display_full_output():
 # SILENT INITIALIZATION
 # ============================================================
 
+def start_a2a_server(synapse):
+    """Start the A2A Protocol Server from within the CLI"""
+    import os as _os
+
+    host = _os.environ.get("A2A_HOST", "0.0.0.0")
+    port = int(_os.environ.get("A2A_PORT", "8000"))
+
+    console.print(f"\n[{Gruvbox.ORANGE} bold]A2A Protocol Server[/]\n")
+    console.print(f"  [{Gruvbox.GRAY}]Host:[/]       [{Gruvbox.GREEN}]{host}[/]")
+    console.print(f"  [{Gruvbox.GRAY}]Port:[/]       [{Gruvbox.GREEN}]{port}[/]")
+    console.print(f"  [{Gruvbox.GRAY}]Agent Card:[/] [{Gruvbox.AQUA}]http://localhost:{port}/.well-known/agent.json[/]")
+    console.print(f"  [{Gruvbox.GRAY}]API Docs:[/]   [{Gruvbox.AQUA}]http://localhost:{port}/docs[/]")
+    console.print(f"  [{Gruvbox.GRAY}]Health:[/]     [{Gruvbox.AQUA}]http://localhost:{port}/health[/]")
+    console.print(f"\n  [{Gruvbox.GRAY}]Auth:[/]       [{Gruvbox.YELLOW}]x-api-key: synapse-dev-key[/] (default)")
+    console.print(f"\n[{Gruvbox.GRAY}]Press Ctrl+C to stop the server and return to CLI.[/]\n")
+
+    try:
+        import uvicorn
+        from a2a.streaming import StreamManager
+        from a2a.push_notifications import PushNotificationDispatcher
+        from a2a.task_manager import TaskManager
+        from a2a.agent_registry import AgentRegistry
+        from a2a.server import create_app
+
+        stream_manager = StreamManager()
+        push_dispatcher = PushNotificationDispatcher()
+        task_manager = TaskManager(
+            stream_manager=stream_manager,
+            push_dispatcher=push_dispatcher,
+        )
+        agent_registry = AgentRegistry(synapse, task_manager)
+
+        app = create_app(
+            synapse=synapse,
+            task_manager=task_manager,
+            agent_registry=agent_registry,
+            stream_manager=stream_manager,
+            push_dispatcher=push_dispatcher,
+        )
+
+        uvicorn.run(app, host=host, port=port, log_level="info")
+
+    except KeyboardInterrupt:
+        console.print(f"\n[{Gruvbox.ORANGE}]A2A server stopped. Returning to CLI.[/]\n")
+    except ImportError as e:
+        console.print(f"\n[{Gruvbox.RED}]Missing dependency: {safe_text(str(e))}[/]")
+        console.print(f"[{Gruvbox.GRAY}]Run: pip install fastapi uvicorn httpx[/]\n")
+    except Exception as e:
+        console.print(f"\n[{Gruvbox.RED}]Server error: {safe_text(str(e))}[/]\n")
+
+
 def init_synapse_silent():
     old_stdout = sys.stdout
     old_stderr = sys.stderr
@@ -1033,6 +1090,10 @@ def main():
             # View raw output
             elif choice_lower == '5':
                 display_raw_output()
+
+            # Start A2A Protocol Server
+            elif choice_lower == '6':
+                start_a2a_server(synapse)
             
             # View full output (more)
             elif choice_lower == 'more':

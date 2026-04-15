@@ -61,10 +61,16 @@ class OrchestratorAgent(BaseAgent):
         self.worker_agents[agent_type] = agent_instance
         print(f"[orchestrator] Registered {agent_type} -> {agent_instance.agent_id}")
     
-    def execute_plan(self, plan: Dict) -> Dict[str, Any]:
+    def execute_plan(self, plan: Dict, progress_callback=None) -> Dict[str, Any]:
         """
         Execute a plan by dispatching tasks to agents
         Handles dependencies and result passing
+
+        Args:
+            plan: Execution plan with tasks array
+            progress_callback: Optional callable(event_type, data) for real-time progress.
+                             event_type: "task_started", "task_completed", "task_failed"
+                             data: dict with task details
         """
         tasks = plan.get("tasks", [])
         
@@ -115,19 +121,40 @@ class OrchestratorAgent(BaseAgent):
                     # Execute this task
                     self.log(f"Executing task {task_id}")
                     state.status = "running"
-                    
+
+                    # Notify: task started
+                    if progress_callback:
+                        progress_callback("task_started", {
+                            "task_id": task_id,
+                            "agent": task.get("agent"),
+                            "tool": task.get("tool"),
+                            "description": task.get("description", ""),
+                            "task_index": tasks.index(task) + 1,
+                            "tasks_total": len(tasks),
+                        })
+
                     # Resolve argument references
                     resolved_args = self._resolve_args(task.get("args", {}))
-                    
+
                     # Dispatch to agent
                     result = self._dispatch_task(task, resolved_args)
-                    
+
                     if result.get("success"):
                         state.status = "completed"
                         state.result = result
                         self.task_results[task_id] = result
                         completed.add(task_id)
                         self.log(f"Task {task_id} completed successfully")
+
+                        # Notify: task completed
+                        if progress_callback:
+                            progress_callback("task_completed", {
+                                "task_id": task_id,
+                                "agent": task.get("agent"),
+                                "tool": task.get("tool"),
+                                "task_index": tasks.index(task) + 1,
+                                "tasks_total": len(tasks),
+                            })
                     else:
                         state.status = "failed"
                         # Get the actual error message
@@ -139,8 +166,19 @@ class OrchestratorAgent(BaseAgent):
                         state.error = error_msg or "Unknown error"
                         completed.add(task_id)  # Mark as done (failed) so we don't retry
                         self.log(f"Task {task_id} failed: {state.error}")
+
+                        # Notify: task failed
+                        if progress_callback:
+                            progress_callback("task_failed", {
+                                "task_id": task_id,
+                                "agent": task.get("agent"),
+                                "tool": task.get("tool"),
+                                "error": state.error,
+                                "task_index": tasks.index(task) + 1,
+                                "tasks_total": len(tasks),
+                            })
                         # Continue with other tasks - don't halt on failure
-                    
+
                     progress_made = True
             
             if not progress_made and len(completed) < len(tasks):

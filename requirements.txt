@@ -11,5 +11,10 @@ pandas
 requests
 beautifulsoup4
 
+# A2A Protocol
+fastapi
+uvicorn[standard]
+httpx
+
 # Testing
 pytest

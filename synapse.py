@@ -95,65 +95,90 @@ class Synapse:
             self.orchestrator
         ]
     
-    def process(self, user_input: str, working_dir: str = None) -> Dict[str, Any]:
+    def process(self, user_input: str, working_dir: str = None,
+                progress_callback=None) -> Dict[str, Any]:
         """
         Process a user request through the multi-agent pipeline
-        
+
         Flow:
         1. InteractionAgent parses input
         2. PlannerAgent creates execution plan
         3. OrchestratorAgent executes plan via worker agents
         4. InteractionAgent formats result
+
+        Args:
+            user_input: Natural language request
+            working_dir: Working directory for file operations
+            progress_callback: Optional callable(event_type, data) for real-time progress.
+                             event_type: "stage", "task_started", "task_completed", "task_failed"
+                             data: dict with event details
         """
         result = {
             "input": user_input,
             "stages": {},
             "success": False
         }
-        
+
+        def _notify(event_type, data):
+            if progress_callback:
+                progress_callback(event_type, data)
+
         # Set working directory if provided
         if working_dir:
             self.planner_agent.set_working_dir(working_dir)
-        
+
         try:
             # Stage 1: Parse user input
             print("\n[Stage 1] Interaction Agent: Parsing input...")
+            _notify("stage", {"stage": 1, "name": "parsing", "description": "Parsing user input"})
             parsed = self.interaction_agent.process_user_input(user_input)
             result["stages"]["parsing"] = parsed
-            
+
             if not parsed.get("success"):
                 result["error"] = "Failed to parse input"
                 return result
-            
+
             # Stage 2: Create execution plan
             print("\n[Stage 2] Planner Agent: Creating plan...")
+            _notify("stage", {"stage": 2, "name": "planning", "description": "Creating execution plan"})
             plan_result = self.planner_agent.create_plan(parsed.get("parsed", {}))
             result["stages"]["planning"] = plan_result
-            
+
             if not plan_result.get("success"):
                 result["error"] = "Failed to create plan"
                 return result
-            
+
             plan = plan_result.get("plan", {})
             print(f"[Stage 2] Plan created with {len(plan.get('tasks', []))} tasks")
-            
+            _notify("stage", {
+                "stage": 2, "name": "plan_ready",
+                "description": f"Plan created with {len(plan.get('tasks', []))} tasks",
+                "tasks": [
+                    {"task_id": t.get("task_id"), "agent": t.get("agent"),
+                     "tool": t.get("tool"), "description": t.get("description", "")}
+                    for t in plan.get("tasks", [])
+                ]
+            })
+
             # Stage 3: Execute plan
             print("\n[Stage 3] Orchestrator: Executing plan...")
-            execution_result = self.orchestrator.execute_plan(plan)
+            _notify("stage", {"stage": 3, "name": "executing", "description": "Executing plan"})
+            execution_result = self.orchestrator.execute_plan(plan, progress_callback=progress_callback)
             result["stages"]["execution"] = execution_result
-            
+
             # Stage 4: Format result
             print("\n[Stage 4] Formatting result...")
+            _notify("stage", {"stage": 4, "name": "formatting", "description": "Formatting result"})
             formatted = self.interaction_agent.format_result(execution_result)
             result["formatted_result"] = formatted
-            
+
             result["success"] = execution_result.get("success", False)
             result["final_output"] = execution_result.get("final_result", {})
-            
+
         except Exception as e:
             result["error"] = str(e)
             print(f"[Synapse] Error: {e}")
-        
+
         return result
     
     def set_working_dir(self, working_dir: str):
