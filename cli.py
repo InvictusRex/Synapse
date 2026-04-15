@@ -25,11 +25,20 @@ from rich.prompt import Prompt
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.style import Style
 from rich.syntax import Syntax
+from rich.markup import escape as rich_escape
+from rich.text import Text
 from rich import box
 
 # ============================================================
 # GRUVBOX DARK THEME
 # ============================================================
+
+def safe_text(content) -> str:
+    """Escape content to prevent Rich markup errors"""
+    if content is None:
+        return ""
+    return rich_escape(str(content))
+
 class Gruvbox:
     BG = "#282828"
     FG = "#ebdbb2"
@@ -175,102 +184,106 @@ def store_log(prompt, result):
 
 def display_log(log_entry):
     """Display comprehensive log entry"""
-    console.print(f"\n[{Gruvbox.ORANGE} bold]EXECUTION LOG[/]\n")
-    
-    # Header info
-    console.print(f"[{Gruvbox.AQUA} bold]Metadata[/]")
-    console.print(f"  [{Gruvbox.GRAY}]Timestamp:[/]   {log_entry.get('timestamp', 'N/A')}")
-    console.print(f"  [{Gruvbox.GRAY}]Prompt:[/]      {log_entry.get('prompt', 'N/A')}")
-    console.print(f"  [{Gruvbox.GRAY}]Working Dir:[/] {log_entry.get('working_directory', 'N/A')}")
-    
-    success = log_entry.get('success', False)
-    status_color = Gruvbox.GREEN if success else Gruvbox.RED
-    console.print(f"  [{Gruvbox.GRAY}]Status:[/]      [{status_color}]{'SUCCESS' if success else 'FAILED'}[/]")
-    
-    # Stage 1: Parsing
-    console.print(f"\n[{Gruvbox.YELLOW} bold]Stage 1: Input Parsing[/]")
-    parsing = log_entry.get("stages", {}).get("parsing", {})
-    if parsing:
-        parsed = parsing.get("parsed", parsing)
-        console.print(f"  [{Gruvbox.GRAY}]Intent:[/]     {parsed.get('intent', 'N/A')}")
-        console.print(f"  [{Gruvbox.GRAY}]Task Type:[/]  {parsed.get('task_type', 'N/A')}")
-        entities = parsed.get('entities', {})
-        if entities:
-            console.print(f"  [{Gruvbox.GRAY}]Entities:[/]")
-            for key, val in entities.items():
-                console.print(f"    [{Gruvbox.PURPLE}]{key}:[/] {val}")
-    
-    # Stage 2: Planning
-    console.print(f"\n[{Gruvbox.YELLOW} bold]Stage 2: Execution Planning[/]")
-    planning = log_entry.get("stages", {}).get("planning", {})
-    console.print(f"  [{Gruvbox.GRAY}]Plan ID:[/]     {planning.get('plan_id', 'N/A')}")
-    console.print(f"  [{Gruvbox.GRAY}]Description:[/] {planning.get('description', 'N/A')}")
-    
-    # Stage 3: Task Execution
-    console.print(f"\n[{Gruvbox.YELLOW} bold]Stage 3: Task Execution[/]")
-    
-    tasks = log_entry.get("tasks", [])
-    if tasks:
-        for task in tasks:
-            status = task.get("status", "pending")
-            if status == "completed":
-                status_str = f"[{Gruvbox.GREEN}]✓ COMPLETED[/]"
-            elif status == "failed":
-                status_str = f"[{Gruvbox.RED}]✗ FAILED[/]"
-            else:
-                status_str = f"[{Gruvbox.GRAY}]○ {status.upper()}[/]"
-            
-            console.print(f"\n  [{Gruvbox.PURPLE} bold]{task.get('task_id', 'N/A')}[/] {status_str}")
-            console.print(f"    [{Gruvbox.GRAY}]Agent:[/]       {task.get('agent', 'N/A')}")
-            console.print(f"    [{Gruvbox.GRAY}]Tool:[/]        {task.get('tool', 'N/A')}")
-            console.print(f"    [{Gruvbox.GRAY}]Description:[/] {task.get('description', 'N/A')}")
-            
-            deps = task.get("depends_on", [])
-            if deps:
-                console.print(f"    [{Gruvbox.GRAY}]Depends On:[/]  {', '.join(deps)}")
-            
-            args = task.get("args", {})
-            if args:
-                console.print(f"    [{Gruvbox.GRAY}]Arguments:[/]")
-                for key, val in args.items():
-                    val_str = str(val)[:80] + "..." if len(str(val)) > 80 else str(val)
-                    console.print(f"      [{Gruvbox.AQUA}]{key}:[/] {val_str}")
-            
-            if task.get("error"):
-                console.print(f"    [{Gruvbox.RED}]Error:[/] {task.get('error')}")
-    
-    # Execution Summary
-    execution = log_entry.get("stages", {}).get("execution", {})
-    console.print(f"\n[{Gruvbox.YELLOW} bold]Execution Summary[/]")
-    console.print(f"  [{Gruvbox.GRAY}]Total Tasks:[/]     {execution.get('tasks_total', 0)}")
-    console.print(f"  [{Gruvbox.GREEN}]Completed:[/]       {execution.get('tasks_completed', 0)}")
-    console.print(f"  [{Gruvbox.RED}]Failed:[/]          {execution.get('tasks_failed', 0)}")
-    
-    # Errors
-    errors = log_entry.get("errors", [])
-    if errors:
-        console.print(f"\n[{Gruvbox.RED} bold]Errors[/]")
-        for err in errors:
-            console.print(f"  [{Gruvbox.RED}]{err.get('task_id')}:[/] {err.get('error')}")
-    
-    # Outputs
-    outputs = log_entry.get("outputs", [])
-    if outputs:
-        console.print(f"\n[{Gruvbox.AQUA} bold]Outputs[/]")
-        for out in outputs:
-            console.print(f"  [{Gruvbox.PURPLE}]{out.get('task')}[/] ({out.get('type')})")
-            content = out.get('content', '')
-            if isinstance(content, dict):
-                for k, v in list(content.items())[:5]:
-                    v_str = str(v)[:60] + "..." if len(str(v)) > 60 else str(v)
-                    console.print(f"    [{Gruvbox.GRAY}]{k}:[/] {v_str}")
-            else:
-                content_str = str(content)[:200]
-                if len(str(content)) > 200:
-                    content_str += "..."
-                console.print(f"    {content_str}")
-    
-    console.print()
+    try:
+        console.print(f"\n[{Gruvbox.ORANGE} bold]EXECUTION LOG[/]\n")
+        
+        # Header info
+        console.print(f"[{Gruvbox.AQUA} bold]Metadata[/]")
+        console.print(f"  [{Gruvbox.GRAY}]Timestamp:[/]   {safe_text(log_entry.get('timestamp', 'N/A'))}")
+        console.print(f"  [{Gruvbox.GRAY}]Prompt:[/]      {safe_text(log_entry.get('prompt', 'N/A'))}")
+        console.print(f"  [{Gruvbox.GRAY}]Working Dir:[/] {safe_text(log_entry.get('working_directory', 'N/A'))}")
+        
+        success = log_entry.get('success', False)
+        status_color = Gruvbox.GREEN if success else Gruvbox.RED
+        console.print(f"  [{Gruvbox.GRAY}]Status:[/]      [{status_color}]{'SUCCESS' if success else 'FAILED'}[/]")
+        
+        # Stage 1: Parsing
+        console.print(f"\n[{Gruvbox.YELLOW} bold]Stage 1: Input Parsing[/]")
+        parsing = log_entry.get("stages", {}).get("parsing", {})
+        if parsing:
+            parsed = parsing.get("parsed", parsing)
+            console.print(f"  [{Gruvbox.GRAY}]Intent:[/]     {safe_text(parsed.get('intent', 'N/A'))}")
+            console.print(f"  [{Gruvbox.GRAY}]Task Type:[/]  {safe_text(parsed.get('task_type', 'N/A'))}")
+            entities = parsed.get('entities', {})
+            if entities:
+                console.print(f"  [{Gruvbox.GRAY}]Entities:[/]")
+                for key, val in entities.items():
+                    console.print(f"    [{Gruvbox.PURPLE}]{safe_text(key)}:[/] {safe_text(val)}")
+        
+        # Stage 2: Planning
+        console.print(f"\n[{Gruvbox.YELLOW} bold]Stage 2: Execution Planning[/]")
+        planning = log_entry.get("stages", {}).get("planning", {})
+        console.print(f"  [{Gruvbox.GRAY}]Plan ID:[/]     {safe_text(planning.get('plan_id', 'N/A'))}")
+        console.print(f"  [{Gruvbox.GRAY}]Description:[/] {safe_text(planning.get('description', 'N/A'))}")
+        
+        # Stage 3: Task Execution
+        console.print(f"\n[{Gruvbox.YELLOW} bold]Stage 3: Task Execution[/]")
+        
+        tasks = log_entry.get("tasks", [])
+        if tasks:
+            for task in tasks:
+                status = task.get("status", "pending")
+                if status == "completed":
+                    status_str = f"[{Gruvbox.GREEN}]✓ COMPLETED[/]"
+                elif status == "failed":
+                    status_str = f"[{Gruvbox.RED}]✗ FAILED[/]"
+                else:
+                    status_str = f"[{Gruvbox.GRAY}]○ {status.upper()}[/]"
+                
+                console.print(f"\n  [{Gruvbox.PURPLE} bold]{safe_text(task.get('task_id', 'N/A'))}[/] {status_str}")
+                console.print(f"    [{Gruvbox.GRAY}]Agent:[/]       {safe_text(task.get('agent', 'N/A'))}")
+                console.print(f"    [{Gruvbox.GRAY}]Tool:[/]        {safe_text(task.get('tool', 'N/A'))}")
+                console.print(f"    [{Gruvbox.GRAY}]Description:[/] {safe_text(task.get('description', 'N/A'))}")
+                
+                deps = task.get("depends_on", [])
+                if deps:
+                    console.print(f"    [{Gruvbox.GRAY}]Depends On:[/]  {', '.join(deps)}")
+                
+                args = task.get("args", {})
+                if args:
+                    console.print(f"    [{Gruvbox.GRAY}]Arguments:[/]")
+                    for key, val in args.items():
+                        val_str = str(val)[:80] + "..." if len(str(val)) > 80 else str(val)
+                        console.print(f"      [{Gruvbox.AQUA}]{safe_text(key)}:[/] {safe_text(val_str)}")
+                
+                if task.get("error"):
+                    console.print(f"    [{Gruvbox.RED}]Error:[/] {safe_text(task.get('error'))}")
+        
+        # Execution Summary
+        execution = log_entry.get("stages", {}).get("execution", {})
+        console.print(f"\n[{Gruvbox.YELLOW} bold]Execution Summary[/]")
+        console.print(f"  [{Gruvbox.GRAY}]Total Tasks:[/]     {execution.get('tasks_total', 0)}")
+        console.print(f"  [{Gruvbox.GREEN}]Completed:[/]       {execution.get('tasks_completed', 0)}")
+        console.print(f"  [{Gruvbox.RED}]Failed:[/]          {execution.get('tasks_failed', 0)}")
+        
+        # Errors
+        errors = log_entry.get("errors", [])
+        if errors:
+            console.print(f"\n[{Gruvbox.RED} bold]Errors[/]")
+            for err in errors:
+                console.print(f"  [{Gruvbox.RED}]{safe_text(err.get('task_id'))}:[/] {safe_text(err.get('error'))}")
+        
+        # Outputs
+        outputs = log_entry.get("outputs", [])
+        if outputs:
+            console.print(f"\n[{Gruvbox.AQUA} bold]Outputs[/]")
+            for out in outputs:
+                console.print(f"  [{Gruvbox.PURPLE}]{safe_text(out.get('task'))}[/] ({safe_text(out.get('type'))})")
+                content = out.get('content', '')
+                if isinstance(content, dict):
+                    for k, v in list(content.items())[:5]:
+                        v_str = str(v)[:60] + "..." if len(str(v)) > 60 else str(v)
+                        console.print(f"    [{Gruvbox.GRAY}]{safe_text(k)}:[/] {safe_text(v_str)}")
+                else:
+                    content_str = str(content)[:200]
+                    if len(str(content)) > 200:
+                        content_str += "..."
+                    console.print(f"    {safe_text(content_str)}")
+        
+        console.print()
+    except Exception as e:
+        console.print(f"\n[{Gruvbox.RED}]Error displaying log: {safe_text(str(e))}[/]")
+        console.print(f"[{Gruvbox.GRAY}]Try using option 5 (raw output) to view as JSON[/]\n")
 
 def display_raw_output():
     """Display raw JSON output from last execution"""
@@ -472,7 +485,7 @@ def show_categories():
 
 def show_tools(category_key):
     if category_key not in CATEGORIES:
-        console.print(f"[{Gruvbox.RED}]Unknown category: {category_key}[/]")
+        console.print(f"[{Gruvbox.RED}]Unknown category: {safe_text(category_key)}[/]")
         return
     
     cat = CATEGORIES[category_key]
@@ -499,13 +512,13 @@ def show_menu():
     menu.add_column("Key", style=STYLE_PROMPT, width=8)
     menu.add_column("Action", style=Style(color=Gruvbox.FG))
     
-    menu.add_row("1", "Execute a task")
-    menu.add_row("2", "View agent tools")
-    menu.add_row("3", "System status")
-    menu.add_row("4", "View execution logs")
-    menu.add_row("5", "View raw output")
-    menu.add_row("h", "Help")
-    menu.add_row("q", "Quit")
+    menu.add_row("\\[1]", "Execute a task")
+    menu.add_row("\\[2]", "View agent tools")
+    menu.add_row("\\[3]", "System status")
+    menu.add_row("\\[4]", "View execution logs")
+    menu.add_row("\\[5]", "View raw output")
+    menu.add_row("\\[h]", "Help")
+    menu.add_row("\\[q]", "Quit")
     
     console.print(menu)
     console.print(f"\n[{Gruvbox.GRAY}]Tip: Type 'log' to view last log, 'more' to see full output[/]")
@@ -570,138 +583,148 @@ def show_status(synapse):
     console.print(f"[{Gruvbox.AQUA}]Working Dir:[/] {WORKING_DIR}\n")
 
 def display_result(result):
-    exec_result = result.get("stages", {}).get("execution", {})
-    tasks_completed = exec_result.get("tasks_completed", 0)
-    tasks_failed = exec_result.get("tasks_failed", 0)
-    tasks_total = exec_result.get("tasks_total", 0)
-    
-    if result.get("success"):
-        if tasks_failed == 0:
-            console.print(f"\n[{Gruvbox.GREEN}]Completed: All {tasks_total} tasks successful[/]\n")
+    try:
+        exec_result = result.get("stages", {}).get("execution", {})
+        tasks_completed = exec_result.get("tasks_completed", 0)
+        tasks_failed = exec_result.get("tasks_failed", 0)
+        tasks_total = exec_result.get("tasks_total", 0)
+        
+        if result.get("success"):
+            if tasks_failed == 0:
+                console.print(f"\n[{Gruvbox.GREEN}]Completed: All {tasks_total} tasks successful[/]\n")
+            else:
+                console.print(f"\n[{Gruvbox.YELLOW}]Completed with issues: {tasks_completed}/{tasks_total} succeeded[/]\n")
         else:
-            console.print(f"\n[{Gruvbox.YELLOW}]Completed with issues: {tasks_completed}/{tasks_total} succeeded[/]\n")
-    else:
-        console.print(f"\n[{Gruvbox.RED}]Failed: {tasks_failed}/{tasks_total} tasks failed[/]\n")
-    
-    task_states = exec_result.get("task_states", {})
-    if task_states:
-        console.print(f"[{Gruvbox.GRAY}]Task Execution:[/]")
-        for task_id, state in task_states.items():
-            if state["status"] == "completed":
-                console.print(f"  [{Gruvbox.GREEN}]+[/] {task_id}: Completed")
-            else:
-                console.print(f"  [{Gruvbox.RED}]x[/] {task_id}: {state.get('error', 'Failed')}")
-        console.print()
-    
-    final = result.get("final_output", {})
-    all_outputs = final.get("all_outputs", [])
-    
-    # Store full output for 'more' command
-    global last_full_output
-    last_full_output = all_outputs
-    
-    has_truncated = False
-    
-    for output in all_outputs:
-        task_type = output.get("type", "")
-        content = output.get("content", "")
+            console.print(f"\n[{Gruvbox.RED}]Failed: {tasks_failed}/{tasks_total} tasks failed[/]\n")
         
-        if task_type == "list_directory" and isinstance(content, dict):
-            items = content.get("items", [])
-            directory = content.get("directory", "")
-            console.print(f"[{Gruvbox.AQUA}]Contents of {directory}[/] ({len(items)} items)\n")
-            
-            table = Table(box=box.SIMPLE, border_style=Gruvbox.GRAY)
-            table.add_column("Name", style=Style(color=Gruvbox.FG))
-            table.add_column("Type", style=STYLE_DIM, width=8)
-            table.add_column("Size", style=STYLE_DIM, width=12)
-            
-            for item in items[:30]:
-                prefix = "[D]" if item.get("type") == "folder" else "[F]"
-                table.add_row(f"{prefix} {item.get('name', '')}", item.get("type", ""), item.get("size", "-"))
-            
-            console.print(table)
-            if len(items) > 30:
-                console.print(f"[{Gruvbox.GRAY}]... and {len(items) - 30} more items (type 'more' to see all)[/]")
-                has_truncated = True
-        
-        elif task_type == "get_system_info" and isinstance(content, dict):
-            console.print(f"[{Gruvbox.AQUA}]System Information[/]\n")
-            for key, value in content.items():
-                console.print(f"  [{Gruvbox.YELLOW}]{key}:[/] {value}")
-        
-        elif task_type in ["get_datetime", "get_cwd"]:
-            if isinstance(content, dict):
-                for key, value in content.items():
-                    if key != "success":
-                        console.print(f"[{Gruvbox.AQUA}]{key}:[/] {value}")
-            else:
-                console.print(f"[{Gruvbox.AQUA}]Result:[/] {content}")
-        
-        elif task_type == "calculate":
-            if isinstance(content, dict):
-                console.print(f"[{Gruvbox.AQUA}]Calculation:[/] {content.get('expression', '')} = [{Gruvbox.GREEN}]{content.get('result', '')}[/]")
-            else:
-                console.print(f"[{Gruvbox.AQUA}]Result:[/] {content}")
-        
-        elif task_type == "generate_text":
-            text_content = str(content)
-            console.print(f"[{Gruvbox.AQUA}]Generated Content:[/]\n")
-            if len(text_content) > 2000:
-                console.print(Panel(text_content[:2000] + "\n\n... (truncated, type 'more' to see full)", border_style=Gruvbox.GRAY, box=box.ROUNDED))
-                has_truncated = True
-            else:
-                console.print(Panel(text_content, border_style=Gruvbox.GRAY, box=box.ROUNDED))
-        
-        elif task_type in ["write_file", "create_file"]:
-            fp = content.get('filepath', content) if isinstance(content, dict) else content
-            console.print(f"[{Gruvbox.GREEN}]File saved:[/] {fp}")
-        
-        elif task_type == "read_file":
-            text_content = str(content)
-            console.print(f"[{Gruvbox.AQUA}]File Content:[/]\n")
-            if len(text_content) > 2000:
-                console.print(Panel(text_content[:2000] + "\n\n... (truncated, type 'more' to see full)", border_style=Gruvbox.GRAY, box=box.ROUNDED))
-                has_truncated = True
-            else:
-                console.print(Panel(text_content, border_style=Gruvbox.GRAY, box=box.ROUNDED))
-        
-        elif task_type == "fetch_webpage":
-            if isinstance(content, dict):
-                console.print(f"[{Gruvbox.AQUA}]Webpage:[/] {content.get('title', '')}")
-                console.print(f"[{Gruvbox.GRAY}]URL: {content.get('url', '')}[/]")
-                web_content = str(content.get('content', ''))
-                if len(web_content) > 1500:
-                    console.print(Panel(web_content[:1500] + "\n\n... (truncated, type 'more' to see full)", border_style=Gruvbox.GRAY, box=box.ROUNDED))
-                    has_truncated = True
+        task_states = exec_result.get("task_states", {})
+        if task_states:
+            console.print(f"[{Gruvbox.GRAY}]Task Execution:[/]")
+            for task_id, state in task_states.items():
+                if state["status"] == "completed":
+                    console.print(f"  [{Gruvbox.GREEN}]+[/] {safe_text(task_id)}: Completed")
                 else:
-                    console.print(Panel(web_content, border_style=Gruvbox.GRAY, box=box.ROUNDED))
+                    console.print(f"  [{Gruvbox.RED}]x[/] {safe_text(task_id)}: {safe_text(state.get('error', 'Failed'))}")
+            console.print()
         
-        elif task_type in ["create_folder", "move_file", "copy_file", "delete_file", "delete_folder"]:
-            console.print(f"[{Gruvbox.GREEN}]{task_type.replace('_', ' ').title()} completed[/]")
-            if isinstance(content, dict):
+        final = result.get("final_output", {})
+        all_outputs = final.get("all_outputs", [])
+        
+        # Store full output for 'more' command
+        global last_full_output
+        last_full_output = all_outputs
+        
+        has_truncated = False
+        
+        for output in all_outputs:
+            task_type = output.get("type", "")
+            content = output.get("content", "")
+            
+            if task_type == "list_directory" and isinstance(content, dict):
+                items = content.get("items", [])
+                directory = content.get("directory", "")
+                console.print(f"[{Gruvbox.AQUA}]Contents of {safe_text(directory)}[/] ({len(items)} items)\n")
+                
+                table = Table(box=box.SIMPLE, border_style=Gruvbox.GRAY)
+                table.add_column("Name", style=Style(color=Gruvbox.FG))
+                table.add_column("Type", style=STYLE_DIM, width=8)
+                table.add_column("Size", style=STYLE_DIM, width=12)
+                
+                for item in items[:30]:
+                    prefix = "\\[D]" if item.get("type") == "folder" else "\\[F]"
+                    table.add_row(f"{prefix} {safe_text(item.get('name', ''))}", item.get("type", ""), item.get("size", "-"))
+                
+                console.print(table)
+                if len(items) > 30:
+                    console.print(f"[{Gruvbox.GRAY}]... and {len(items) - 30} more items (type 'more' to see all)[/]")
+                    has_truncated = True
+            
+            elif task_type == "get_system_info" and isinstance(content, dict):
+                console.print(f"[{Gruvbox.AQUA}]System Information[/]\n")
                 for key, value in content.items():
-                    if value:
-                        console.print(f"  [{Gruvbox.GRAY}]{key}:[/] {value}")
-        
-        else:
-            if content:
+                    console.print(f"  [{Gruvbox.YELLOW}]{safe_text(key)}:[/] {safe_text(value)}")
+            
+            elif task_type in ["get_datetime", "get_cwd"]:
                 if isinstance(content, dict):
                     for key, value in content.items():
-                        console.print(f"  [{Gruvbox.YELLOW}]{key}:[/] {value}")
+                        if key != "success":
+                            console.print(f"[{Gruvbox.AQUA}]{safe_text(key)}:[/] {safe_text(value)}")
                 else:
-                    text_content = str(content)
-                    if len(text_content) > 1000:
-                        console.print(text_content[:1000] + "\n... (truncated, type 'more' to see full)")
+                    console.print(f"[{Gruvbox.AQUA}]Result:[/] {safe_text(content)}")
+            
+            elif task_type == "calculate":
+                if isinstance(content, dict):
+                    console.print(f"[{Gruvbox.AQUA}]Calculation:[/] {safe_text(content.get('expression', ''))} = [{Gruvbox.GREEN}]{safe_text(content.get('result', ''))}[/]")
+                else:
+                    console.print(f"[{Gruvbox.AQUA}]Result:[/] {safe_text(content)}")
+            
+            elif task_type == "generate_text":
+                text_content = str(content)
+                console.print(f"[{Gruvbox.AQUA}]Generated Content:[/]\n")
+                if len(text_content) > 2000:
+                    # Use Text to avoid markup parsing
+                    panel_content = Text(text_content[:2000] + "\n\n... (truncated, type 'more' to see full)")
+                    console.print(Panel(panel_content, border_style=Gruvbox.GRAY, box=box.ROUNDED))
+                    has_truncated = True
+                else:
+                    console.print(Panel(Text(text_content), border_style=Gruvbox.GRAY, box=box.ROUNDED))
+            
+            elif task_type in ["write_file", "create_file"]:
+                fp = content.get('filepath', content) if isinstance(content, dict) else content
+                console.print(f"[{Gruvbox.GREEN}]File saved:[/] {safe_text(fp)}")
+            
+            elif task_type == "read_file":
+                text_content = str(content)
+                console.print(f"[{Gruvbox.AQUA}]File Content:[/]\n")
+                if len(text_content) > 2000:
+                    # Use Text to avoid markup parsing
+                    panel_content = Text(text_content[:2000] + "\n\n... (truncated, type 'more' to see full)")
+                    console.print(Panel(panel_content, border_style=Gruvbox.GRAY, box=box.ROUNDED))
+                    has_truncated = True
+                else:
+                    console.print(Panel(Text(text_content), border_style=Gruvbox.GRAY, box=box.ROUNDED))
+            
+            elif task_type == "fetch_webpage":
+                if isinstance(content, dict):
+                    console.print(f"[{Gruvbox.AQUA}]Webpage:[/] {safe_text(content.get('title', ''))}")
+                    console.print(f"[{Gruvbox.GRAY}]URL: {safe_text(content.get('url', ''))}[/]")
+                    web_content = str(content.get('content', ''))
+                    if len(web_content) > 1500:
+                        panel_content = Text(web_content[:1500] + "\n\n... (truncated, type 'more' to see full)")
+                        console.print(Panel(panel_content, border_style=Gruvbox.GRAY, box=box.ROUNDED))
                         has_truncated = True
                     else:
-                        console.print(text_content)
+                        console.print(Panel(Text(web_content), border_style=Gruvbox.GRAY, box=box.ROUNDED))
+            
+            elif task_type in ["create_folder", "move_file", "copy_file", "delete_file", "delete_folder"]:
+                console.print(f"[{Gruvbox.GREEN}]{task_type.replace('_', ' ').title()} completed[/]")
+                if isinstance(content, dict):
+                    for key, value in content.items():
+                        if value:
+                            console.print(f"  [{Gruvbox.GRAY}]{safe_text(key)}:[/] {safe_text(value)}")
+            
+            else:
+                if content:
+                    if isinstance(content, dict):
+                        for key, value in content.items():
+                            console.print(f"  [{Gruvbox.YELLOW}]{safe_text(key)}:[/] {safe_text(value)}")
+                    else:
+                        text_content = str(content)
+                        if len(text_content) > 1000:
+                            console.print(Text(text_content[:1000] + "\n... (truncated, type 'more' to see full)"))
+                            has_truncated = True
+                        else:
+                            console.print(Text(text_content))
+        
+        console.print()
+        if has_truncated:
+            console.print(f"[{Gruvbox.GRAY}]Type 'more' to see full output, 'log' for execution log[/]")
+        else:
+            console.print(f"[{Gruvbox.GRAY}]Type 'log' to view detailed execution log[/]")
     
-    console.print()
-    if has_truncated:
-        console.print(f"[{Gruvbox.GRAY}]Type 'more' to see full output, 'log' for execution log[/]")
-    else:
-        console.print(f"[{Gruvbox.GRAY}]Type 'log' to view detailed execution log[/]")
+    except Exception as e:
+        console.print(f"\n[{Gruvbox.RED}]Error displaying result: {safe_text(str(e))}[/]")
+        console.print(f"[{Gruvbox.GRAY}]Try using option 5 (raw output) to view as JSON[/]\n")
 
 
 def display_full_output():
@@ -712,43 +735,53 @@ def display_full_output():
         console.print(f"\n[{Gruvbox.YELLOW}]No output to display. Run a prompt first.[/]\n")
         return
     
-    console.print(f"\n[{Gruvbox.ORANGE} bold]Full Output[/]\n")
-    
-    for output in last_full_output:
-        task_type = output.get("type", "")
-        content = output.get("content", "")
+    try:
+        console.print(f"\n[{Gruvbox.ORANGE} bold]Full Output[/]\n")
         
-        console.print(f"[{Gruvbox.AQUA} bold]{task_type}[/]")
-        
-        if task_type == "list_directory" and isinstance(content, dict):
-            items = content.get("items", [])
-            directory = content.get("directory", "")
-            console.print(f"Directory: {directory} ({len(items)} items)\n")
+        for output in last_full_output:
+            task_type = output.get("type", "")
+            content = output.get("content", "")
             
-            table = Table(box=box.SIMPLE, border_style=Gruvbox.GRAY)
-            table.add_column("Name", style=Style(color=Gruvbox.FG))
-            table.add_column("Type", style=STYLE_DIM, width=8)
-            table.add_column("Size", style=STYLE_DIM, width=12)
+            console.print(f"[{Gruvbox.AQUA} bold]{safe_text(task_type)}[/]")
             
-            for item in items:  # All items, no truncation
-                prefix = "[D]" if item.get("type") == "folder" else "[F]"
-                table.add_row(f"{prefix} {item.get('name', '')}", item.get("type", ""), item.get("size", "-"))
+            if task_type == "list_directory" and isinstance(content, dict):
+                items = content.get("items", [])
+                directory = content.get("directory", "")
+                console.print(f"Directory: {safe_text(directory)} ({len(items)} items)\n")
+                
+                table = Table(box=box.SIMPLE, border_style=Gruvbox.GRAY)
+                table.add_column("Name", style=Style(color=Gruvbox.FG))
+                table.add_column("Type", style=STYLE_DIM, width=8)
+                table.add_column("Size", style=STYLE_DIM, width=12)
+                
+                for item in items:  # All items, no truncation
+                    prefix = "\\[D]" if item.get("type") == "folder" else "\\[F]"
+                    table.add_row(f"{prefix} {safe_text(item.get('name', ''))}", item.get("type", ""), item.get("size", "-"))
+                
+                console.print(table)
             
-            console.print(table)
-        
-        elif isinstance(content, dict):
-            for key, value in content.items():
-                if key == "content" or key == "text":
-                    console.print(f"\n{value}\n")
-                elif key != "success":
-                    console.print(f"  [{Gruvbox.YELLOW}]{key}:[/] {value}")
-        
-        else:
-            console.print(f"\n{content}\n")
+            elif isinstance(content, dict):
+                for key, value in content.items():
+                    if key == "content" or key == "text":
+                        # Use Text object for raw content to avoid markup parsing
+                        console.print()
+                        console.print(Text(str(value)))
+                        console.print()
+                    elif key != "success":
+                        console.print(f"  [{Gruvbox.YELLOW}]{safe_text(key)}:[/] {safe_text(value)}")
+            
+            else:
+                # Use Text object for raw content
+                console.print()
+                console.print(Text(str(content)))
+                console.print()
+            
+            console.print()
         
         console.print()
-    
-    console.print()
+    except Exception as e:
+        console.print(f"\n[{Gruvbox.RED}]Error displaying output: {safe_text(str(e))}[/]")
+        console.print(f"[{Gruvbox.GRAY}]Try using option 5 (raw output) to view as JSON[/]\n")
 
 # ============================================================
 # SILENT INITIALIZATION
@@ -792,7 +825,7 @@ def main():
         try:
             synapse = init_synapse_silent()
         except Exception as e:
-            console.print(f"[{Gruvbox.RED}]Failed to initialize: {e}[/]")
+            console.print(f"[{Gruvbox.RED}]Failed to initialize: {safe_text(str(e))}[/]")
             return
     
     clear_screen()
@@ -925,7 +958,7 @@ def main():
         except KeyboardInterrupt:
             console.print(f"\n[{Gruvbox.ORANGE}]Interrupted. Type 'q' to quit.[/]")
         except Exception as e:
-            console.print(f"[{Gruvbox.RED}]Error: {e}[/]")
+            console.print(f"[{Gruvbox.RED}]Error: {safe_text(str(e))}[/]")
 
 if __name__ == "__main__":
     main()
