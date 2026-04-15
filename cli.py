@@ -8,8 +8,8 @@ import os
 import sys
 import json
 import time
-import signal
 import threading
+from datetime import datetime
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -19,8 +19,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from rich.markup import escape as rich_escape
-from rich.columns import Columns
-from rich.style import Style
+from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from synapse import Synapse, create_synapse
 
@@ -54,6 +53,85 @@ synapse: Synapse = None
 last_result = None
 last_log = None
 task_interrupted = False
+test_results = []
+
+
+# ============================================================
+# TEST CASES
+# ============================================================
+
+TEST_CASES = [
+    {
+        "id": "T01",
+        "name": "System - Get DateTime",
+        "prompt": "what time is it",
+        "category": "system",
+        "expects": "datetime"
+    },
+    {
+        "id": "T02", 
+        "name": "System - Get System Info",
+        "prompt": "get system information",
+        "category": "system",
+        "expects": "system_info"
+    },
+    {
+        "id": "T03",
+        "name": "System - Calculator",
+        "prompt": "calculate 25 * 4 + 100",
+        "category": "system",
+        "expects": "result"
+    },
+    {
+        "id": "T04",
+        "name": "Content - Generate Haiku",
+        "prompt": "write a haiku about coding",
+        "category": "content",
+        "expects": "content"
+    },
+    {
+        "id": "T05",
+        "name": "Content - Greeting Response",
+        "prompt": "hello how are you",
+        "category": "content",
+        "expects": "content"
+    },
+    {
+        "id": "T06",
+        "name": "File - Create Simple File",
+        "prompt": "create a file called synapse_test.txt with content: Test successful!",
+        "category": "file",
+        "expects": "filepath"
+    },
+    {
+        "id": "T07",
+        "name": "File - List Directory",
+        "prompt": "list all files in the current directory",
+        "category": "file",
+        "expects": "items"
+    },
+    {
+        "id": "T08",
+        "name": "File - Create Folder",
+        "prompt": "create a folder called SynapseTestFolder",
+        "category": "file",
+        "expects": "path"
+    },
+    {
+        "id": "T09",
+        "name": "Chain - Generate and Save",
+        "prompt": "write a short poem about AI and save it to ai_poem.txt",
+        "category": "chain",
+        "expects": "filepath"
+    },
+    {
+        "id": "T10",
+        "name": "Web - Fetch Webpage",
+        "prompt": "fetch https://example.com",
+        "category": "web",
+        "expects": "content"
+    },
+]
 
 
 # ============================================================
@@ -109,7 +187,7 @@ def get_agent_table():
 
 
 def get_menu_table(server_running: bool = False):
-    """Get actions menu table"""
+    """Get actions menu table with split columns"""
     table = Table(
         show_header=True,
         header_style=f"bold {COLORS['purple']}",
@@ -117,22 +195,26 @@ def get_menu_table(server_running: bool = False):
         title="Actions Menu",
         title_style=f"bold {COLORS['orange']}"
     )
-    table.add_column("Key", style=COLORS['purple'])
-    table.add_column("Action", style=COLORS['fg'])
+    table.add_column("Key", style=COLORS['purple'], width=5)
+    table.add_column("Command", style=COLORS['yellow'], width=10)
+    table.add_column("Description", style=COLORS['fg'])
     
-    table.add_row("\\[1] tools", "View agent tools")
-    table.add_row("\\[2] status", "System status")
-    table.add_row("\\[3] llm", "LLM Pool status")
-    table.add_row("\\[4] memory", "Memory search")
-    table.add_row("\\[5] log", "View last execution log")
-    table.add_row("\\[6] raw", "View raw output")
+    table.add_row("1", "tools", "View agent tools")
+    table.add_row("2", "status", "System status")
+    table.add_row("3", "llm", "LLM Pool status")
+    table.add_row("4", "memory", "Memory search")
+    table.add_row("5", "log", "View last execution log")
+    table.add_row("6", "raw", "View raw output")
     
-    server_status = "[green]running[/]" if server_running else "[gray]stopped[/]"
-    table.add_row(f"\\[7] server", f"Toggle A2A Server ({server_status})")
+    server_status = f"[{COLORS['green']}]running[/]" if server_running else f"[{COLORS['gray']}]stopped[/]"
+    table.add_row("7", "server", f"Toggle A2A Server ({server_status})")
     
-    table.add_row("\\[h] help", "Show help")
-    table.add_row("\\[c] clear", "Clear screen")
-    table.add_row("\\[q] quit", "Exit Synapse")
+    table.add_row("8", "test", "Run system tests")
+    table.add_row("9", "results", "View test results")
+    
+    table.add_row("h", "help", "Show help")
+    table.add_row("c", "clear", "Clear screen")
+    table.add_row("q", "quit", "Exit Synapse")
     
     return table
 
@@ -145,6 +227,216 @@ def print_main_ui():
     server_running = synapse.is_server_running() if synapse else False
     console.print(get_menu_table(server_running))
     console.print()
+
+
+# ============================================================
+# TESTING SYSTEM
+# ============================================================
+
+def run_single_test(test_case: dict) -> dict:
+    """Run a single test case and return result"""
+    global synapse
+    
+    test_id = test_case["id"]
+    test_name = test_case["name"]
+    prompt = test_case["prompt"]
+    expects = test_case["expects"]
+    
+    start_time = time.time()
+    
+    try:
+        result = synapse.process(prompt)
+        elapsed = time.time() - start_time
+        
+        success = result.get("success", False)
+        tasks_completed = result.get("tasks_completed", 0)
+        tasks_total = result.get("tasks_total", 0)
+        
+        # Check if expected output type is present
+        found_expected = False
+        if success:
+            all_outputs = result.get("all_outputs", [])
+            task_states = result.get("task_states", {})
+            
+            for output in all_outputs:
+                content = output.get("content", {})
+                if isinstance(content, dict):
+                    if expects in content or "content" in content or "result" in content:
+                        found_expected = True
+                        break
+                elif content:
+                    found_expected = True
+                    break
+            
+            for state in task_states.values():
+                if state.get("status") == "completed":
+                    task_result = state.get("result", {})
+                    if isinstance(task_result, dict):
+                        if expects in task_result or task_result.get("success"):
+                            found_expected = True
+                            break
+        
+        return {
+            "id": test_id,
+            "name": test_name,
+            "prompt": prompt,
+            "success": success,
+            "found_expected": found_expected,
+            "tasks": f"{tasks_completed}/{tasks_total}",
+            "time_ms": round(elapsed * 1000),
+            "error": result.get("error") if not success else None,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        elapsed = time.time() - start_time
+        return {
+            "id": test_id,
+            "name": test_name,
+            "prompt": prompt,
+            "success": False,
+            "found_expected": False,
+            "tasks": "0/0",
+            "time_ms": round(elapsed * 1000),
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+
+
+def run_tests():
+    """Run all tests interactively"""
+    global test_results, synapse
+    
+    clear_screen()
+    print_header()
+    
+    console.print(f"[bold {COLORS['orange']}]System Tests[/]\n")
+    console.print(f"[{COLORS['gray']}]This will run {len(TEST_CASES)} tests to verify system functionality.[/]")
+    console.print(f"[{COLORS['gray']}]Press Enter to start, or 'q' to cancel.[/]\n")
+    
+    try:
+        choice = console.input(f"[{COLORS['purple']}]> [/]").strip().lower()
+        if choice == 'q':
+            return
+    except KeyboardInterrupt:
+        return
+    
+    test_results = []
+    passed = 0
+    failed = 0
+    
+    console.print()
+    
+    for i, test_case in enumerate(TEST_CASES):
+        test_id = test_case["id"]
+        test_name = test_case["name"]
+        
+        # Show progress
+        console.print(f"[{COLORS['aqua']}][{i+1}/{len(TEST_CASES)}][/] {test_id}: {test_name}...", end=" ")
+        
+        try:
+            result = run_single_test(test_case)
+            test_results.append(result)
+            
+            if result["success"]:
+                passed += 1
+                console.print(f"[{COLORS['green']}]PASS[/] ({result['time_ms']}ms)")
+            else:
+                failed += 1
+                error_msg = result.get("error", "Unknown error")[:50]
+                console.print(f"[{COLORS['red']}]FAIL[/] - {safe_text(error_msg)}")
+        
+        except KeyboardInterrupt:
+            console.print(f"[{COLORS['yellow']}]CANCELLED[/]")
+            break
+    
+    # Summary
+    console.print()
+    total = passed + failed
+    pass_rate = (passed / total * 100) if total > 0 else 0
+    
+    summary_color = COLORS['green'] if pass_rate >= 80 else COLORS['yellow'] if pass_rate >= 50 else COLORS['red']
+    
+    console.print(Panel(
+        f"[bold]Tests: {total}[/]  |  [{COLORS['green']}]Passed: {passed}[/]  |  [{COLORS['red']}]Failed: {failed}[/]  |  Pass Rate: [{summary_color}]{pass_rate:.0f}%[/]",
+        title=f"[bold {COLORS['orange']}]Test Summary[/]",
+        border_style=COLORS['gray']
+    ))
+    
+    console.print(f"\n[{COLORS['gray']}]Type 'results' or '9' to view detailed results.[/]")
+    console.print(f"[{COLORS['gray']}]Press Enter to continue...[/]")
+    
+    try:
+        input()
+    except:
+        pass
+
+
+def view_test_results():
+    """View detailed test results"""
+    global test_results
+    
+    clear_screen()
+    print_header()
+    
+    if not test_results:
+        console.print(f"[{COLORS['gray']}]No test results available. Run tests first (option 8).[/]")
+        console.print(f"\n[{COLORS['gray']}]Press Enter to continue...[/]")
+        input()
+        return
+    
+    console.print(f"[bold {COLORS['orange']}]Test Results[/]\n")
+    
+    # Results table
+    table = Table(
+        show_header=True,
+        header_style=f"bold {COLORS['aqua']}",
+        border_style=COLORS['gray']
+    )
+    table.add_column("ID", style=COLORS['purple'], width=4)
+    table.add_column("Test Name", style=COLORS['fg'], width=25)
+    table.add_column("Status", width=8)
+    table.add_column("Tasks", style=COLORS['gray'], width=6)
+    table.add_column("Time", style=COLORS['gray'], width=8)
+    table.add_column("Error", style=COLORS['red'], width=30)
+    
+    for result in test_results:
+        status = f"[{COLORS['green']}]PASS[/]" if result["success"] else f"[{COLORS['red']}]FAIL[/]"
+        error = safe_text(result.get("error", "")[:30]) if result.get("error") else ""
+        
+        table.add_row(
+            result["id"],
+            result["name"],
+            status,
+            result["tasks"],
+            f"{result['time_ms']}ms",
+            error
+        )
+    
+    console.print(table)
+    
+    # Summary stats
+    passed = sum(1 for r in test_results if r["success"])
+    failed = len(test_results) - passed
+    total_time = sum(r["time_ms"] for r in test_results)
+    avg_time = total_time / len(test_results) if test_results else 0
+    
+    console.print(f"\n[{COLORS['aqua']}]Statistics:[/]")
+    console.print(f"  Total tests: {len(test_results)}")
+    console.print(f"  Passed: [{COLORS['green']}]{passed}[/]")
+    console.print(f"  Failed: [{COLORS['red']}]{failed}[/]")
+    console.print(f"  Total time: {total_time}ms")
+    console.print(f"  Avg time: {avg_time:.0f}ms")
+    
+    if test_results:
+        console.print(f"  Last run: {test_results[0]['timestamp'][:19]}")
+    
+    console.print(f"\n[{COLORS['gray']}]Press Enter to continue...[/]")
+    
+    try:
+        input()
+    except:
+        pass
 
 
 # ============================================================
@@ -523,6 +815,9 @@ def toggle_server():
             console.print(f"[{COLORS['red']}]Failed to start A2A Server[/]")
     
     console.print()
+    # Show updated menu with server status
+    console.print(get_menu_table(synapse.is_server_running()))
+    console.print()
 
 
 # ============================================================
@@ -553,7 +848,8 @@ def show_help():
 [bold]Tips:[/]
   * Press Ctrl+C during task execution to cancel
   * Type 'more' to see full output after a task
-  * Type 'log' to see detailed execution log"""
+  * Type 'log' to see detailed execution log
+  * Type 'test' to run system tests"""
     
     console.print(Panel(
         overview,
@@ -649,17 +945,33 @@ def process_command(cmd: str) -> bool:
         show_raw()
         return True
     
+    # Server toggle (7 or server)
+    if cmd_lower in ['7', 'server']:
+        toggle_server()
+        return True
+    
+    # Test (8 or test)
+    if cmd_lower in ['8', 'test']:
+        run_tests()
+        clear_screen()
+        print_header()
+        print_main_ui()
+        return True
+    
+    # View test results (9 or results)
+    if cmd_lower in ['9', 'results']:
+        view_test_results()
+        clear_screen()
+        print_header()
+        print_main_ui()
+        return True
+    
     # More (full output)
     if cmd_lower == 'more':
         if last_result:
             display_result(last_result, show_full=True)
         else:
             console.print(f"[{COLORS['gray']}]No previous result[/]")
-        return True
-    
-    # Server toggle (7 or server)
-    if cmd_lower in ['7', 'server']:
-        toggle_server()
         return True
     
     # Menu (just show UI again)

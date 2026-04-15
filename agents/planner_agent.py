@@ -65,17 +65,62 @@ PATHS:
 - Documents: {self.documents}
 - Downloads: {self.downloads}
 
-AGENTS AND THEIR TOOLS:
-- file_agent: read_file, write_file, create_folder, list_directory, move_file, copy_file, delete_file, search_files
+TOOLS AND REQUIRED ARGUMENTS:
+- list_directory: REQUIRES "directory" (full path)
+- read_file: REQUIRES "filepath" (full path)
+- write_file: REQUIRES "filepath" (full path), "content" (string)
+- create_folder: REQUIRES "folder_path" (full path)
+- move_file: REQUIRES "source", "destination"
+- copy_file: REQUIRES "source", "destination"
+- delete_file: REQUIRES "filepath"
+- search_files: REQUIRES "directory", "pattern"
+- generate_text: REQUIRES "prompt" (string)
+- summarize_text: REQUIRES "text" (string)
+- fetch_webpage: REQUIRES "url" (string with https://)
+- download_file: REQUIRES "url", "destination"
+- get_system_info: no args required
+- get_datetime: no args required
+- calculate: REQUIRES "expression" (math string)
+- get_cwd: no args required
+
+AGENTS:
+- file_agent: list_directory, read_file, write_file, create_folder, move_file, copy_file, delete_file, search_files
 - content_agent: generate_text, summarize_text
 - web_agent: fetch_webpage, download_file
-- system_agent: get_system_info, get_datetime, calculate, get_cwd, run_command
+- system_agent: get_system_info, get_datetime, calculate, get_cwd
 
 EXAMPLES:
 
-Example 1: "get system info and save to info.txt"
+Example 1: "list files in Desktop" or "list all files on Desktop"
 {{
   "plan_id": "p001",
+  "description": "List Desktop files",
+  "tasks": [
+    {{"task_id": "T1", "agent": "file_agent", "tool": "list_directory", "args": {{"directory": "{self.desktop}"}}, "description": "List Desktop files", "depends_on": []}}
+  ]
+}}
+
+Example 2: "list files in Documents"
+{{
+  "plan_id": "p002",
+  "description": "List Documents files",
+  "tasks": [
+    {{"task_id": "T1", "agent": "file_agent", "tool": "list_directory", "args": {{"directory": "{self.documents}"}}, "description": "List Documents files", "depends_on": []}}
+  ]
+}}
+
+Example 3: "list files in current directory"
+{{
+  "plan_id": "p003",
+  "description": "List current directory files",
+  "tasks": [
+    {{"task_id": "T1", "agent": "file_agent", "tool": "list_directory", "args": {{"directory": "{self.working_dir}"}}, "description": "List current directory", "depends_on": []}}
+  ]
+}}
+
+Example 4: "get system info and save to info.txt"
+{{
+  "plan_id": "p004",
   "description": "Get system info and save to file",
   "tasks": [
     {{"task_id": "T1", "agent": "system_agent", "tool": "get_system_info", "args": {{}}, "description": "Get system information", "depends_on": []}},
@@ -83,9 +128,9 @@ Example 1: "get system info and save to info.txt"
   ]
 }}
 
-Example 2: "write a poem about stars and save as stars.txt on Desktop"
+Example 5: "write a poem about stars and save as stars.txt on Desktop"
 {{
-  "plan_id": "p002",
+  "plan_id": "p005",
   "description": "Generate poem and save to Desktop",
   "tasks": [
     {{"task_id": "T1", "agent": "content_agent", "tool": "generate_text", "args": {{"prompt": "Write a short poem about stars"}}, "description": "Generate poem", "depends_on": []}},
@@ -93,9 +138,9 @@ Example 2: "write a poem about stars and save as stars.txt on Desktop"
   ]
 }}
 
-Example 3: "create folder Projects on Desktop with readme.txt inside"
+Example 6: "create folder Projects on Desktop with readme.txt inside"
 {{
-  "plan_id": "p003",
+  "plan_id": "p006",
   "description": "Create folder and file",
   "tasks": [
     {{"task_id": "T1", "agent": "file_agent", "tool": "create_folder", "args": {{"folder_path": "{self.desktop}/Projects"}}, "description": "Create Projects folder", "depends_on": []}},
@@ -103,27 +148,27 @@ Example 3: "create folder Projects on Desktop with readme.txt inside"
   ]
 }}
 
-Example 4: "what time is it"
+Example 7: "what time is it"
 {{
-  "plan_id": "p004",
+  "plan_id": "p007",
   "description": "Get current time",
   "tasks": [
     {{"task_id": "T1", "agent": "system_agent", "tool": "get_datetime", "args": {{}}, "description": "Get date and time", "depends_on": []}}
   ]
 }}
 
-Example 5: "hello" or "hi" or greeting
+Example 8: "hello" or "hi" or greeting
 {{
-  "plan_id": "p005",
+  "plan_id": "p008",
   "description": "Respond to greeting",
   "tasks": [
     {{"task_id": "T1", "agent": "content_agent", "tool": "generate_text", "args": {{"prompt": "Respond to a friendly greeting briefly"}}, "description": "Generate greeting response", "depends_on": []}}
   ]
 }}
 
-Example 6: "fetch example.com and summarize it" (PARALLEL CAPABLE)
+Example 9: "fetch example.com and summarize it"
 {{
-  "plan_id": "p006",
+  "plan_id": "p009",
   "description": "Fetch and summarize webpage",
   "tasks": [
     {{"task_id": "T1", "agent": "web_agent", "tool": "fetch_webpage", "args": {{"url": "https://example.com"}}, "description": "Fetch webpage", "depends_on": []}},
@@ -131,31 +176,77 @@ Example 6: "fetch example.com and summarize it" (PARALLEL CAPABLE)
   ]
 }}
 
+Example 10: "create a file called test.txt with Hello World"
+{{
+  "plan_id": "p010",
+  "description": "Create test file",
+  "tasks": [
+    {{"task_id": "T1", "agent": "file_agent", "tool": "write_file", "args": {{"filepath": "{self.working_dir}/test.txt", "content": "Hello World"}}, "description": "Create test.txt", "depends_on": []}}
+  ]
+}}
+
+Example 11: "calculate 25 * 4 + 100"
+{{
+  "plan_id": "p011",
+  "description": "Calculate expression",
+  "tasks": [
+    {{"task_id": "T1", "agent": "system_agent", "tool": "calculate", "args": {{"expression": "25 * 4 + 100"}}, "description": "Calculate", "depends_on": []}}
+  ]
+}}
+
 RULES:
-1. If NO path mentioned -> use: {self.working_dir}
-2. If "Desktop" mentioned -> use: {self.desktop}
-3. If "Documents" mentioned -> use: {self.documents}
-4. Use {{{{T1.content}}}} or {{{{T1.result}}}} to reference previous task output
-5. Create folder BEFORE creating files inside it
-6. Tasks with no dependencies can run in PARALLEL
-7. For greetings/simple questions, use generate_text
+1. ALWAYS include ALL required arguments for each tool
+2. For list_directory, ALWAYS include "directory" with FULL PATH
+3. If NO path mentioned -> use: {self.working_dir}
+4. If "Desktop" mentioned -> use: {self.desktop}
+5. If "Documents" mentioned -> use: {self.documents}
+6. If "Downloads" mentioned -> use: {self.downloads}
+7. Use {{{{T1.content}}}} or {{{{T1.result}}}} to reference previous task output
+8. Create folder BEFORE creating files inside it
+9. Tasks with no dependencies can run in PARALLEL
+10. For greetings/simple questions, use generate_text
 
 Now create a plan for: "{original_input}"
 
-Respond with ONLY valid JSON:"""
+Respond with ONLY valid JSON (no markdown, no explanation):"""
 
         response = self.think(prompt)
         
         try:
+            # Try to extract JSON from response
             match = re.search(r'\{[\s\S]*\}', response)
             if match:
                 json_str = match.group()
-                # Fix common JSON escape issues from LLM
+                
+                # Clean up common LLM JSON issues
+                # 1. Remove markdown code blocks
+                json_str = re.sub(r'```json\s*', '', json_str)
+                json_str = re.sub(r'```\s*', '', json_str)
+                
+                # 2. Fix Windows path backslashes - convert \\ to / in paths
+                # This handles C:\\Users\\... -> C:/Users/...
+                json_str = re.sub(r'([A-Za-z]):\\\\', r'\1:/', json_str)
+                json_str = re.sub(r'\\\\', '/', json_str)
+                
+                # 3. Fix single backslashes in paths (but not escape sequences)
+                # Handle cases like C:\Users -> C:/Users
+                json_str = re.sub(r'([A-Za-z]):\\([^\\"])', r'\1:/\2', json_str)
+                
+                # 4. Fix invalid escape sequences
+                # Replace \_ with _
                 json_str = json_str.replace('\\_', '_')
-                json_str = json_str.replace('\\n', ' ')
-                json_str = json_str.replace('\\"', '"')
-                # Fix invalid escapes by removing backslashes before non-escape chars
-                json_str = re.sub(r'\\([^"\\\/bfnrtu])', r'\1', json_str)
+                # Replace \: with :
+                json_str = json_str.replace('\\:', ':')
+                # Replace \( and \) with ( and )
+                json_str = json_str.replace('\\(', '(')
+                json_str = json_str.replace('\\)', ')')
+                
+                # 5. Fix escaped newlines that should be spaces in content
+                json_str = re.sub(r'(?<!\\)\\n', ' ', json_str)
+                
+                # 6. Remove any remaining invalid escape sequences
+                # Valid JSON escapes: \" \\ \/ \b \f \n \r \t \uXXXX
+                json_str = re.sub(r'\\([^"\\/bfnrtu])', r'\1', json_str)
                 
                 plan = json.loads(json_str)
                 plan["status"] = "created"
