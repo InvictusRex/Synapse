@@ -19,6 +19,9 @@ from agents.file_agent import FileAgent
 from agents.content_agent import ContentAgent
 from agents.web_agent import WebAgent
 from agents.system_agent import SystemAgent
+from agents.codegen_agent import CodeGenAgent
+from agents.scaffolding_agent import ScaffoldingAgent
+from agents.implementation_agent import ImplementationAgent
 from agents.orchestrator_agent import OrchestratorAgent
 
 
@@ -54,13 +57,19 @@ class Synapse:
         self.content_agent = ContentAgent()
         self.web_agent = WebAgent()
         self.system_agent = SystemAgent()
+        self.codegen_agent = CodeGenAgent()
+        self.scaffolding_agent = ScaffoldingAgent()
+        self.implementation_agent = ImplementationAgent()
         self.orchestrator = OrchestratorAgent()
-        
+
         # Register worker agents with orchestrator (pass instances, not IDs)
         self.orchestrator.register_worker_agent("file_agent", self.file_agent)
         self.orchestrator.register_worker_agent("content_agent", self.content_agent)
         self.orchestrator.register_worker_agent("web_agent", self.web_agent)
         self.orchestrator.register_worker_agent("system_agent", self.system_agent)
+        self.orchestrator.register_worker_agent("codegen_agent", self.codegen_agent)
+        self.orchestrator.register_worker_agent("scaffolding_agent", self.scaffolding_agent)
+        self.orchestrator.register_worker_agent("implementation_agent", self.implementation_agent)
         
         # Start all agents
         for agent in self.get_all_agents():
@@ -80,6 +89,9 @@ class Synapse:
             self.content_agent,
             self.web_agent,
             self.system_agent,
+            self.codegen_agent,
+            self.scaffolding_agent,
+            self.implementation_agent,
             self.orchestrator
         ]
     

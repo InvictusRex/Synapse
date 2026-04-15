@@ -87,7 +87,11 @@ with tab_execute:
             "Calculate 25 * 17 + sqrt(144)",
             "Write an article about artificial intelligence and save it to my Desktop as ai_article.txt",
             "Create a folder called Projects on my Desktop",
-            "Fetch the webpage https://example.com and summarize it"
+            "Fetch the webpage https://example.com and summarize it",
+            "Scaffold a new React project called my-app",
+            "Generate a Python class template called UserService",
+            "Implement a Python backend for my-project",
+            "List all available templates"
         ]
         cols = st.columns(2)
         for i, ex in enumerate(examples):

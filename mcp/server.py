@@ -15,6 +15,7 @@ class ToolCategory(Enum):
     WEB = "web"
     SYSTEM = "system"
     DATA = "data"
+    DEVELOPMENT = "development"
 
 
 @dataclass

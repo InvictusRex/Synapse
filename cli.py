@@ -444,6 +444,34 @@ CATEGORIES = {
             "read_csv": {"desc": "Read a CSV file", "example": "Read data.csv from Documents"},
             "write_csv": {"desc": "Write data to CSV", "example": "Create contacts.csv on Desktop"},
         }
+    },
+    "codegen": {
+        "name": "CodeGen Agent",
+        "description": "Template code generation",
+        "color": Gruvbox.ORANGE,
+        "tools": {
+            "generate_template": {"desc": "Generate code from a template (class, function, route, etc.)", "example": "Generate a python class template called UserService"},
+            "generate_code": {"desc": "Generate code using AI from a description", "example": "Generate a Python function to sort a list of dictionaries by key"},
+            "list_templates": {"desc": "List all available code and project templates", "example": "Show me all available templates"},
+        }
+    },
+    "scaffolding": {
+        "name": "Scaffolding Agent",
+        "description": "Project bootstrapping",
+        "color": Gruvbox.PURPLE,
+        "tools": {
+            "scaffold_project": {"desc": "Scaffold a new project from a template", "example": "Scaffold a new React project called my-app"},
+            "list_templates": {"desc": "List available project templates", "example": "What project templates are available?"},
+        }
+    },
+    "implementation": {
+        "name": "Implementation Agent",
+        "description": "Sectional implementation (backend, frontend, etc.)",
+        "color": Gruvbox.BLUE,
+        "tools": {
+            "implement_section": {"desc": "Implement a complete project section", "example": "Implement a Python backend for my-project"},
+            "generate_code": {"desc": "Generate custom code using AI", "example": "Generate a REST API with user authentication"},
+        }
     }
 }
 
@@ -538,6 +566,13 @@ The multi-agent system will plan and execute your request.
 [{Gruvbox.GREEN}]"Create a folder called Projects on my Desktop"[/]
 [{Gruvbox.GREEN}]"Write an article about AI and save it to my Desktop"[/]
 [{Gruvbox.GREEN}]"Fetch https://example.com and summarize it"[/]
+
+[{Gruvbox.AQUA}]Development Commands[/]
+[{Gruvbox.GREEN}]"Scaffold a new React project called my-app"[/]
+[{Gruvbox.GREEN}]"Generate a Python class template called UserService"[/]
+[{Gruvbox.GREEN}]"Implement a Python backend for my-project"[/]
+[{Gruvbox.GREEN}]"Implement a React frontend for my-project"[/]
+[{Gruvbox.GREEN}]"Generate a FastAPI router for handling users"[/]
 
 [{Gruvbox.AQUA}]Viewing Logs[/]
 Type 'log' to view detailed logs for the last executed prompt.
@@ -696,6 +731,70 @@ def display_result(result):
                     else:
                         console.print(Panel(Text(web_content), border_style=Gruvbox.GRAY, box=box.ROUNDED))
             
+            elif task_type == "scaffold_project" and isinstance(content, dict):
+                console.print(f"[{Gruvbox.GREEN}]Project scaffolded:[/] {safe_text(content.get('project_name', ''))}")
+                console.print(f"  [{Gruvbox.GRAY}]Template:[/]  {safe_text(content.get('template', ''))}")
+                console.print(f"  [{Gruvbox.GRAY}]Location:[/]  {safe_text(content.get('project_dir', ''))}")
+                files = content.get('files_created', [])
+                folders = content.get('folders_created', [])
+                if folders:
+                    console.print(f"  [{Gruvbox.AQUA}]Folders:[/]   {', '.join(folders)}")
+                if files:
+                    console.print(f"  [{Gruvbox.AQUA}]Files:[/]")
+                    for f in files:
+                        console.print(f"    [{Gruvbox.YELLOW}]+[/] {safe_text(f)}")
+
+            elif task_type == "implement_section" and isinstance(content, dict):
+                console.print(f"[{Gruvbox.GREEN}]Section implemented:[/] {safe_text(content.get('section', ''))} ({safe_text(content.get('tech', ''))})")
+                console.print(f"  [{Gruvbox.GRAY}]Description:[/] {safe_text(content.get('description', ''))}")
+                console.print(f"  [{Gruvbox.GRAY}]Location:[/]    {safe_text(content.get('section_dir', ''))}")
+                files = content.get('files_created', [])
+                folders = content.get('folders_created', [])
+                if folders:
+                    console.print(f"  [{Gruvbox.AQUA}]Folders:[/]     {', '.join(folders)}")
+                if files:
+                    console.print(f"  [{Gruvbox.AQUA}]Files:[/]")
+                    for f in files:
+                        console.print(f"    [{Gruvbox.YELLOW}]+[/] {safe_text(f)}")
+
+            elif task_type == "generate_template" and isinstance(content, dict):
+                console.print(f"[{Gruvbox.GREEN}]Template generated:[/] {safe_text(content.get('template_type', ''))} - {safe_text(content.get('name', ''))}")
+                code = content.get('code', '')
+                if code:
+                    lang = content.get('language', 'text')
+                    syntax = Syntax(code, lang, theme="monokai")
+                    console.print(Panel(syntax, border_style=Gruvbox.GRAY, box=box.ROUNDED))
+
+            elif task_type == "generate_code" and isinstance(content, dict):
+                console.print(f"[{Gruvbox.GREEN}]Code generated:[/] {safe_text(content.get('language', 'code'))}")
+                code = content.get('code', '')
+                if code:
+                    lang = content.get('language', 'text')
+                    if len(code) > 3000:
+                        display_code = code[:3000] + "\n\n... (truncated, type 'more' to see full)"
+                        has_truncated = True
+                    else:
+                        display_code = code
+                    syntax = Syntax(display_code, lang, theme="monokai")
+                    console.print(Panel(syntax, border_style=Gruvbox.GRAY, box=box.ROUNDED))
+
+            elif task_type == "list_templates" and isinstance(content, dict):
+                console.print(f"[{Gruvbox.AQUA}]Available Templates[/]\n")
+                code_templates = content.get('code_templates', {})
+                if code_templates:
+                    console.print(f"  [{Gruvbox.YELLOW}]Code Templates:[/]")
+                    for lang, types in code_templates.items():
+                        console.print(f"    [{Gruvbox.GREEN}]{safe_text(lang)}:[/] {', '.join(types)}")
+                project_templates = content.get('project_templates', [])
+                if project_templates:
+                    console.print(f"\n  [{Gruvbox.YELLOW}]Project Templates:[/]")
+                    console.print(f"    {', '.join(project_templates)}")
+                section_templates = content.get('section_templates', {})
+                if section_templates:
+                    console.print(f"\n  [{Gruvbox.YELLOW}]Section Templates:[/]")
+                    for section, techs in section_templates.items():
+                        console.print(f"    [{Gruvbox.GREEN}]{safe_text(section)}:[/] {', '.join(techs)}")
+
             elif task_type in ["create_folder", "move_file", "copy_file", "delete_file", "delete_folder"]:
                 console.print(f"[{Gruvbox.GREEN}]{task_type.replace('_', ' ').title()} completed[/]")
                 if isinstance(content, dict):

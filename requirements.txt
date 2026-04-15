@@ -10,3 +10,6 @@ pandas
 # Web
 requests
 beautifulsoup4
+
+# Testing
+pytest

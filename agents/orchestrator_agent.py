@@ -330,6 +330,47 @@ class OrchestratorAgent(BaseAgent):
                     # For generate_text
                     elif tool_type == "generate_text":
                         content = result.get("content", "")
+                    # For scaffold_project
+                    elif tool_type == "scaffold_project":
+                        content = {
+                            "project_name": result.get("project_name", ""),
+                            "template": result.get("template", ""),
+                            "project_dir": result.get("project_dir", ""),
+                            "files_created": result.get("files_created", []),
+                            "folders_created": result.get("folders_created", [])
+                        }
+                    # For implement_section
+                    elif tool_type == "implement_section":
+                        content = {
+                            "section": result.get("section", ""),
+                            "tech": result.get("tech", ""),
+                            "description": result.get("description", ""),
+                            "section_dir": result.get("section_dir", ""),
+                            "files_created": result.get("files_created", []),
+                            "folders_created": result.get("folders_created", [])
+                        }
+                    # For generate_template
+                    elif tool_type == "generate_template":
+                        content = {
+                            "template_type": result.get("template_type", ""),
+                            "name": result.get("name", ""),
+                            "code": result.get("code", ""),
+                            "language": result.get("language", "")
+                        }
+                    # For generate_code
+                    elif tool_type == "generate_code":
+                        content = {
+                            "code": result.get("code", ""),
+                            "language": result.get("language", ""),
+                            "prompt": result.get("prompt", "")
+                        }
+                    # For list_templates
+                    elif tool_type == "list_templates":
+                        content = {
+                            "code_templates": result.get("code_templates", {}),
+                            "project_templates": result.get("project_templates", []),
+                            "section_templates": result.get("section_templates", {})
+                        }
                     # Default: try common keys
                     else:
                         for key in ["content", "result", "data", "output"]:

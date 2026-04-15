@@ -71,9 +71,12 @@ AVAILABLE TOOLS (via specialized agents):
 
 AGENT ASSIGNMENTS:
 - file_agent: filesystem tools (read_file, write_file, create_file, list_directory, move_file, copy_file, etc.)
-- content_agent: content tools (generate_text, summarize_text) - ONLY for generating NEW content
+- content_agent: content tools (generate_text, summarize_text) - ONLY for generating NEW text content (articles, reports)
 - web_agent: web tools (fetch_webpage, download_file)
 - system_agent: system tools (run_command, get_cwd, get_system_info, calculate, get_datetime)
+- codegen_agent: code generation tools (generate_template, list_templates, generate_code) - for generating CODE from templates or AI
+- scaffolding_agent: project scaffolding tools (scaffold_project, list_templates) - for bootstrapping NEW projects
+- implementation_agent: section implementation tools (implement_section, generate_code) - for implementing complete project sections (backend, frontend, database, api, testing)
 
 REQUEST:
 {json.dumps(request, indent=2)}
