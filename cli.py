@@ -195,26 +195,26 @@ def get_menu_table(server_running: bool = False):
         title="Actions Menu",
         title_style=f"bold {COLORS['orange']}"
     )
-    table.add_column("Key", style=COLORS['purple'], width=5)
+    table.add_column("Key", style=COLORS['purple'], width=7, justify="center")
     table.add_column("Command", style=COLORS['yellow'], width=10)
     table.add_column("Description", style=COLORS['fg'])
     
-    table.add_row("1", "tools", "View agent tools")
-    table.add_row("2", "status", "System status")
-    table.add_row("3", "llm", "LLM Pool status")
-    table.add_row("4", "memory", "Memory search")
-    table.add_row("5", "log", "View last execution log")
-    table.add_row("6", "raw", "View raw output")
+    table.add_row(Text("[1]"), "tools", "View agent tools")
+    table.add_row(Text("[2]"), "status", "System status")
+    table.add_row(Text("[3]"), "llm", "LLM Pool status")
+    table.add_row(Text("[4]"), "memory", "Memory search")
+    table.add_row(Text("[5]"), "log", "View last execution log")
+    table.add_row(Text("[6]"), "raw", "View raw output")
     
     server_status = f"[{COLORS['green']}]running[/]" if server_running else f"[{COLORS['gray']}]stopped[/]"
-    table.add_row("7", "server", f"Toggle A2A Server ({server_status})")
+    table.add_row(Text("[7]"), "server", f"Toggle A2A Server ({server_status})")
     
-    table.add_row("8", "test", "Run system tests")
-    table.add_row("9", "results", "View test results")
+    table.add_row(Text("[8]"), "test", "Run system tests")
+    table.add_row(Text("[9]"), "results", "View test results")
     
-    table.add_row("h", "help", "Show help")
-    table.add_row("c", "clear", "Clear screen")
-    table.add_row("q", "quit", "Exit Synapse")
+    table.add_row(Text("[h]"), "help", "Show help")
+    table.add_row(Text("[c]"), "clear", "Clear screen")
+    table.add_row(Text("[q]"), "quit", "Exit Synapse")
     
     return table
 
@@ -503,12 +503,79 @@ def display_result(result: dict, show_full: bool = False):
             console.print(f"  [{style}]{icon}[/] {task_id} - {safe_text(desc)}")
     
     # Generated content
+    def extract_directory_listing(payload):
+        """Extract directory listing payload from common output wrappers."""
+        if not isinstance(payload, dict):
+            return None
+
+        if "directory" in payload and isinstance(payload.get("items"), list):
+            return payload
+
+        for key in ("result", "data", "content"):
+            nested = payload.get(key)
+            if isinstance(nested, dict) and "directory" in nested and isinstance(nested.get("items"), list):
+                return nested
+
+        return None
+
+    def render_directory_listing(listing):
+        """Render directory listing in a structured table."""
+        directory = str(listing.get("directory", ""))
+        items = listing.get("items", [])
+        folders = [i for i in items if i.get("type") == "folder"]
+        files = [i for i in items if i.get("type") == "file"]
+
+        max_items = 40
+        visible_items = (folders + files) if show_full else (folders + files)[:max_items]
+
+        console.print()
+        console.print("Directory Listing", style=f"bold {COLORS['aqua']}")
+        if directory:
+            path_line = Text("Path: ", style=COLORS['gray'])
+            path_line.append(directory, style=COLORS['fg'])
+            console.print(path_line)
+
+        if not items:
+            console.print(f"[{COLORS['gray']}](empty directory)[/]")
+            return
+
+        table = Table(
+            show_header=True,
+            header_style=f"bold {COLORS['purple']}",
+            border_style=COLORS['gray']
+        )
+        table.add_column("Type", style=COLORS['aqua'], width=8)
+        table.add_column("Name", style=COLORS['fg'])
+        table.add_column("Size", style=COLORS['yellow'], width=12, justify="right")
+
+        for item in visible_items:
+            item_type = "Folder" if item.get("type") == "folder" else "File"
+            name = safe_text(str(item.get("name", "")))
+            size = "-" if item_type == "Folder" else safe_text(str(item.get("size", "?")))
+            table.add_row(item_type, name, size)
+
+        console.print(table)
+        if not show_full and len(items) > max_items:
+            console.print(
+                f"[{COLORS['gray']}]Showing first {max_items} of {len(items)} items "
+                f"(type 'more' to see full output)[/]"
+            )
+        console.print(
+            f"[{COLORS['gray']}]Total:[/] {len(items)} "
+            f"([{COLORS['aqua']}]Folders: {len(folders)}[/], [{COLORS['yellow']}]Files: {len(files)}[/])"
+        )
+
     all_outputs = result.get("all_outputs", [])
     for output in all_outputs:
         content = output.get("content")
         output_type = output.get("type", "")
         
         if content:
+            listing = extract_directory_listing(content)
+            if output_type == "list_directory" or listing:
+                render_directory_listing(listing or content)
+                continue
+
             console.print()
             console.print("Generated Content", style=f"bold {COLORS['aqua']}")
             
