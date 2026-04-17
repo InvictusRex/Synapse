@@ -25,7 +25,8 @@ from server import get_a2a_server, start_a2a_server, stop_a2a_server
 
 from agents import (
     InteractionAgent, PlannerAgent, OrchestratorAgent,
-    FileAgent, ContentAgent, WebAgent, SystemAgent
+    FileAgent, ContentAgent, WebAgent, SystemAgent,
+    StateAgent, PerceptionAgent
 )
 
 
@@ -72,6 +73,9 @@ class Synapse:
         self.content_agent = None
         self.web_agent = None
         self.system_agent = None
+        # Phase 1 & 2 additions
+        self.state_agent = None
+        self.perception_agent = None
         
         # Callbacks
         self._progress_callback: Optional[Callable] = None
@@ -122,19 +126,25 @@ class Synapse:
         self.content_agent = ContentAgent()
         self.web_agent = WebAgent()
         self.system_agent = SystemAgent()
+        # Phase 1 & 2: observational agents
+        self.state_agent = StateAgent()
+        self.perception_agent = PerceptionAgent()
         
         # Register workers with orchestrator
         self.orchestrator_agent.register_agent("file_agent", self.file_agent)
         self.orchestrator_agent.register_agent("content_agent", self.content_agent)
         self.orchestrator_agent.register_agent("web_agent", self.web_agent)
         self.orchestrator_agent.register_agent("system_agent", self.system_agent)
+        self.orchestrator_agent.register_agent("state_agent", self.state_agent)
+        self.orchestrator_agent.register_agent("perception_agent", self.perception_agent)
         
         # Set working directory for planner
         self.planner_agent.set_working_dir(self.working_dir)
         
         # Start all agents
         for agent in [self.interaction_agent, self.planner_agent, self.orchestrator_agent,
-                      self.file_agent, self.content_agent, self.web_agent, self.system_agent]:
+                      self.file_agent, self.content_agent, self.web_agent, self.system_agent,
+                      self.state_agent, self.perception_agent]:
             agent.start()
     
     def set_working_dir(self, working_dir: str):
@@ -311,7 +321,9 @@ class Synapse:
                 "file": self.file_agent.get_status() if self.file_agent else None,
                 "content": self.content_agent.get_status() if self.content_agent else None,
                 "web": self.web_agent.get_status() if self.web_agent else None,
-                "system": self.system_agent.get_status() if self.system_agent else None
+                "system": self.system_agent.get_status() if self.system_agent else None,
+                "state": self.state_agent.get_status() if self.state_agent else None,
+                "perception": self.perception_agent.get_status() if self.perception_agent else None,
             }
         
         return status
@@ -329,7 +341,8 @@ class Synapse:
         
         # Stop agents
         agents = [self.interaction_agent, self.planner_agent, self.orchestrator_agent,
-                  self.file_agent, self.content_agent, self.web_agent, self.system_agent]
+                  self.file_agent, self.content_agent, self.web_agent, self.system_agent,
+                  self.state_agent, self.perception_agent]
         for agent in agents:
             if agent:
                 agent.stop()

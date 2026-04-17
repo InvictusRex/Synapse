@@ -19,7 +19,11 @@ GROQ_MODEL = "llama-3.1-8b-instant"
 GEMINI_MODEL = "gemini-2.0-flash"
 
 # LLM Priority (first = primary, rest = fallbacks)
-LLM_PRIORITY = ["groq", "gemini"]
+# Gemini Flash is the primary planner/reasoner - stronger on structured JSON
+# and conditional logic that desktop-automation plans require. Groq stays as
+# a fast fallback for when Gemini rate-limits or flakes, and is still great
+# for content_agent's lightweight text generation.
+LLM_PRIORITY = ["gemini", "groq"]
 
 # LLM Pool Settings
 LLM_POOL_SIZE = 3  # Number of concurrent LLM workers
@@ -55,6 +59,32 @@ A2A_SERVER_ENABLED = False
 # =============================================================================
 
 MCP_TOOLS_ENABLED = True
+
+# =============================================================================
+# SAFETY / PERMISSIONS (Phase 0)
+# =============================================================================
+#
+# Synapse gates tools marked `requires_confirmation=True` through a
+# permission layer. Behavior for a sensitive tool is decided in this order:
+#
+#   1. If tool name is in SENSITIVE_TOOLS_BLOCK -> refuse outright.
+#   2. If tool name is in SENSITIVE_TOOLS_ALLOW -> run without prompting.
+#   3. If UNATTENDED_MODE is True              -> run without prompting.
+#   4. Otherwise                               -> prompt the user Y/n.
+#
+# Non-sensitive tools are never gated.
+
+# Tools in this list are ALWAYS blocked, even if user would confirm.
+# Useful for running Synapse in a restricted environment.
+SENSITIVE_TOOLS_BLOCK = []
+
+# Tools in this list bypass the confirmation prompt.
+# Useful for trusted tools you run frequently.
+SENSITIVE_TOOLS_ALLOW = []
+
+# If True, ALL confirmation prompts are skipped. Intended for scripted runs,
+# scheduled tasks, or headless deployments. DANGEROUS in interactive use.
+UNATTENDED_MODE = False
 
 # =============================================================================
 # LOGGING

@@ -130,14 +130,16 @@ JSON ONLY:"""
         return "\n".join(lines) if lines else "No tools available"
     
     def use_tool(self, tool_name: str, args: Dict) -> Dict[str, Any]:
-        """Execute a tool via MCP"""
-        my_tools = self._get_my_tools_list()
-        if tool_name not in my_tools:
-            return {
-                "success": False,
-                "error": f"Tool '{tool_name}' not in my capabilities. I can use: {my_tools}"
-            }
+        """
+        Execute a tool via MCP.
         
+        Note: the agent's tool_categories are used for planning/prompting
+        purposes (so the LLM knows what this agent is for) but are NOT
+        enforced at execution time. If the planner misroutes a task - e.g.
+        assigning check_file_exists to file_agent because the name looks
+        filesystem-y - we just dispatch through MCP anyway rather than
+        failing the task. Domain boundaries are advisory, not a hard wall.
+        """
         result = self.mcp.tools_call(tool_name, args)
         return result
     

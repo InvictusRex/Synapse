@@ -199,7 +199,11 @@ class DAGExecutor:
                             self._notify_progress(task, "completed")
                         else:
                             error = result.get("error", "Unknown error")
-                            dag.mark_failed(task.task_id, error)
+                            # Pass the full result so task_states retains the
+                            # diagnostic flags (blocked, denied, etc.) - the
+                            # error string alone isn't enough for downstream
+                            # tools to understand what went wrong.
+                            dag.mark_failed(task.task_id, error, result)
                             failed_tasks.add(task.task_id)
                             self._notify_progress(task, "failed")
                             

@@ -5,12 +5,217 @@ Creates execution plans (DAGs) from structured requests
 import os
 import json
 import re
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 
 from agents.base_agent import BaseAgent, AgentConfig
 from core.a2a_bus import Message, MessageType
 from core.dag import DAG, DAGTask
 from mcp.server import ToolCategory
+
+
+# ============================================================
+# JSON EXTRACTION & CLEANUP
+# ============================================================
+#
+# LLMs are not reliable JSON emitters. Common problems we see in real
+# responses from Gemini, Groq, and friends:
+#
+#   1. Markdown fences:   ```json ... ```
+#   2. Chatty preamble:   "Sure! Here's the plan: { ... }"
+#   3. Trailing commas:   {"a": 1, "b": 2,}  (valid Python, invalid JSON)
+#   4. Unescaped Windows paths: "C:\Users\TheKi"
+#   5. Single quotes:     {'a': 1}
+#   6. Truncation:        response cut off mid-object
+#
+# We use a tolerant cleanup pipeline plus a balanced-brace fallback so
+# that ONE bad character doesn't torpedo the whole plan.
+
+
+def _clean_json_string(s: str) -> str:
+    """Apply all the common cleanups LLM-generated JSON needs."""
+    # 1. Strip markdown fences anywhere in the string.
+    s = re.sub(r'```(?:json|JSON)?\s*', '', s)
+    s = re.sub(r'```\s*', '', s)
+    
+    # 2. Windows paths: \\ -> / , and single \ after drive letters.
+    s = re.sub(r'([A-Za-z]):\\\\', r'\1:/', s)
+    s = re.sub(r'\\\\', '/', s)
+    s = re.sub(r'([A-Za-z]):\\([^\\"])', r'\1:/\2', s)
+    
+    # 3. Hand-coded invalid escape sequences we've seen in practice.
+    for bad, good in (('\\_', '_'), ('\\:', ':'),
+                       ('\\(', '('), ('\\)', ')')):
+        s = s.replace(bad, good)
+    
+    # (step 4 removed - the old regex converted valid \n escapes inside
+    # JSON string values into spaces, which mangled content. If the LLM
+    # emits literal unescaped newlines inside strings, json.loads will
+    # give "Invalid control character" - a different error we can't paper
+    # over here without a full tokenizer.)
+    
+    # 5. Any leftover stray backslash that isn't a valid JSON escape
+    # becomes a forward slash. Preserves path separators when the LLM
+    # forgets to double-backslash ("C:\U" -> "C:/U", not "C:U").
+    s = re.sub(r'\\([^"\\/bfnrtu])', r'/\1', s)
+    
+    # 6. ** Trailing commas **. LLMs emit these constantly. JSON forbids
+    # them, and the error you see is "Expecting property name enclosed
+    # in double quotes". Strip any comma immediately before } or ].
+    s = re.sub(r',(\s*[}\]])', r'\1', s)
+    
+    # 7. Collapse double/triple commas that sometimes appear when the
+    # LLM tries to "fix itself" mid-generation.
+    s = re.sub(r',\s*,+', ',', s)
+    
+    # 8. ** Leading commas **. The OTHER half of the same bug: LLMs
+    # sometimes emit `{, "key": ...}` or `[, "x"]`. Strip any comma
+    # immediately after { or [. Same error signature: "Expecting
+    # property name enclosed in double quotes: line 1 column 2".
+    s = re.sub(r'([{\[])\s*,+', r'\1', s)
+    
+    # 9. ** Unquoted object keys **. Gemini and Groq occasionally emit
+    # Python-style dicts like {plan_id: "p001"} without quoting keys.
+    # json.loads reports this as "Expecting property name enclosed in
+    # double quotes" too - the SAME error signature the user is seeing.
+    #
+    # We accept any identifier that appears right after `{`, `,`, or a
+    # line start (with optional whitespace) and is followed by `:`. This
+    # catches both multi-line pretty-printed JSON and single-line JSON,
+    # without false-positiving on identifier-looking text inside string
+    # values (which would be preceded by `"`, not by `{` / `,`).
+    s = re.sub(
+        r'([{,])(\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)',
+        r'\1\2"\3"\4',
+        s
+    )
+    # Also cover the case where the JSON starts with an unquoted key
+    # (no preceding `{` on the same line in a multi-line response).
+    s = re.sub(
+        r'(^|\n)(\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)',
+        r'\1\2"\3"\4',
+        s
+    )
+    
+    return s
+
+
+def _extract_balanced_braces(s: str, start: int = 0) -> Optional[str]:
+    """
+    Find the first balanced `{...}` substring starting at or after
+    position `start`. Properly tracks strings (so braces inside "..."
+    don't count) and escape sequences. Returns the substring or None.
+    """
+    # Find the first opening brace
+    idx = s.find('{', start)
+    if idx < 0:
+        return None
+    
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(idx, len(s)):
+        ch = s[i]
+        if escape:
+            escape = False
+            continue
+        if ch == '\\':
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                return s[idx:i+1]
+    return None  # Unbalanced - LLM truncated mid-object
+
+
+def _parse_plan_response(response: str) -> Tuple[Optional[Dict], Optional[str], str]:
+    """
+    Try hard to get a plan dict out of an LLM response.
+    
+    Returns (plan_dict, error_message, raw_response). Exactly one of
+    plan_dict / error_message will be non-None. raw_response is always
+    included so callers can surface it for debugging.
+    """
+    if not response:
+        return None, "Empty LLM response", ""
+    
+    raw = response
+    
+    # Strategy A: greedy match from first { to last }.
+    # This handles the common case of a single JSON blob with optional
+    # chatty preamble or afterword.
+    greedy = re.search(r'\{[\s\S]*\}', response)
+    greedy_result = None
+    if greedy:
+        candidate = greedy.group()
+        cleaned = _clean_json_string(candidate)
+        try:
+            parsed = json.loads(cleaned)
+            if isinstance(parsed, dict):
+                greedy_result = parsed
+                # If it's already plan-shaped, use it immediately.
+                if "tasks" in parsed:
+                    return parsed, None, raw
+        except json.JSONDecodeError as e1:
+            first_err = f"Invalid JSON: {e1}"
+        except Exception as e1:
+            first_err = f"Parse error: {e1}"
+        else:
+            first_err = None
+    else:
+        first_err = "No JSON object found in response"
+    
+    # Strategy B: balanced-brace extraction from the first '{'.
+    # Useful when the LLM appended trailing text that greedy would swallow.
+    balanced = _extract_balanced_braces(response)
+    if balanced:
+        cleaned = _clean_json_string(balanced)
+        try:
+            parsed = json.loads(cleaned)
+            if isinstance(parsed, dict) and "tasks" in parsed:
+                return parsed, None, raw
+            # Keep this as a second-choice result in case nothing better
+            # turns up.
+            if greedy_result is None and isinstance(parsed, dict):
+                greedy_result = parsed
+        except json.JSONDecodeError:
+            pass
+    
+    # Strategy C: scan for multiple `{...}` blocks. Prefer a plan-shaped
+    # one (has "tasks"); fall back to anything parseable.
+    pos = 0
+    while pos < len(response):
+        blob = _extract_balanced_braces(response, pos)
+        if not blob:
+            break
+        cleaned = _clean_json_string(blob)
+        try:
+            parsed = json.loads(cleaned)
+            if isinstance(parsed, dict) and "tasks" in parsed:
+                return parsed, None, raw
+        except Exception:
+            pass
+        # Advance past this blob
+        blob_idx = response.find(blob, pos)
+        pos = (blob_idx + len(blob)) if blob_idx >= 0 else pos + 1
+    
+    # Last resort: return the greedy/balanced result even if it doesn't
+    # have "tasks" - it still might be a partial plan or something the
+    # caller can work with.
+    if greedy_result is not None:
+        return greedy_result, None, raw
+    
+    return None, first_err or "Could not extract a parseable JSON object", raw
+
+
+# ============================================================
 
 
 class PlannerAgent(BaseAgent):
@@ -41,15 +246,22 @@ class PlannerAgent(BaseAgent):
         super().__init__(config)
         
         # System paths
-        self.home_dir = os.path.expanduser("~")
-        self.desktop = os.path.join(self.home_dir, "Desktop")
-        self.documents = os.path.join(self.home_dir, "Documents")
-        self.downloads = os.path.join(self.home_dir, "Downloads")
-        self.working_dir = os.getcwd()
+        # NOTE: normalize to forward slashes. On Windows, os.path.join gives
+        # backslashes ("C:\Users\TheKi\Desktop") which embed badly into the
+        # JSON examples shown to the LLM - the resulting JSON is invalid
+        # unless every backslash is escaped, and partial escape-stripping
+        # in the cleanup regex below used to collapse the path into
+        # "C:\UsersTheKiDesktop". Forward slashes work fine on all platforms
+        # and make the prompt examples unambiguous.
+        self.home_dir = os.path.expanduser("~").replace("\\", "/")
+        self.desktop = os.path.join(self.home_dir, "Desktop").replace("\\", "/")
+        self.documents = os.path.join(self.home_dir, "Documents").replace("\\", "/")
+        self.downloads = os.path.join(self.home_dir, "Downloads").replace("\\", "/")
+        self.working_dir = os.getcwd().replace("\\", "/")
     
     def set_working_dir(self, working_dir: str):
         """Set the working directory for file operations"""
-        self.working_dir = working_dir
+        self.working_dir = working_dir.replace("\\", "/")
     
     def create_plan(self, request: Dict) -> Dict[str, Any]:
         """Create an execution plan (DAG) from a structured request"""
@@ -65,29 +277,50 @@ PATHS:
 - Documents: {self.documents}
 - Downloads: {self.downloads}
 
-TOOLS AND REQUIRED ARGUMENTS:
-- list_directory: REQUIRES "directory" (full path)
-- read_file: REQUIRES "filepath" (full path)
-- write_file: REQUIRES "filepath" (full path), "content" (string)
-- create_folder: REQUIRES "folder_path" (full path)
-- move_file: REQUIRES "source", "destination"
-- copy_file: REQUIRES "source", "destination"
-- delete_file: REQUIRES "filepath"
-- search_files: REQUIRES "directory", "pattern"
-- generate_text: REQUIRES "prompt" (string)
-- summarize_text: REQUIRES "text" (string)
-- fetch_webpage: REQUIRES "url" (string with https://)
-- download_file: REQUIRES "url", "destination"
-- get_system_info: no args required
-- get_datetime: no args required
-- calculate: REQUIRES "expression" (math string)
-- get_cwd: no args required
+AGENTS AND THEIR TOOLS (each tool belongs to exactly ONE agent -
+when you pick a tool, you MUST set "agent" to the owner listed here):
 
-AGENTS:
-- file_agent: list_directory, read_file, write_file, create_folder, move_file, copy_file, delete_file, search_files
-- content_agent: generate_text, summarize_text
-- web_agent: fetch_webpage, download_file
-- system_agent: get_system_info, get_datetime, calculate, get_cwd
+file_agent  (filesystem operations - reading, writing, and moving files on disk):
+  - list_directory     REQUIRES "directory" (full path)
+  - read_file          REQUIRES "filepath"
+  - write_file         REQUIRES "filepath", "content"
+  - create_folder      REQUIRES "folder_path"
+  - delete_file        REQUIRES "filepath"
+  - delete_folder      REQUIRES "folder_path"
+  - move_file          REQUIRES "source", "destination"
+  - copy_file          REQUIRES "source", "destination"
+  - search_files       REQUIRES "directory", "pattern"
+
+content_agent  (AI-generated text):
+  - generate_text      REQUIRES "prompt"
+  - summarize_text     REQUIRES "text"
+
+web_agent  (internet operations):
+  - fetch_webpage      REQUIRES "url" (must start with https://)
+  - download_file      REQUIRES "url", "save_path"
+
+system_agent  (system information and commands):
+  - get_system_info    no args
+  - get_datetime       no args
+  - calculate          REQUIRES "expression"
+  - get_cwd            no args
+  - run_command        REQUIRES "command"
+
+state_agent  (READ-ONLY observations of system state - notice that
+check_file_exists belongs HERE, not to file_agent, because it just
+checks; it never reads the file):
+  - get_active_window        no args (foreground window)
+  - list_open_windows        no args (all visible window titles)
+  - list_running_processes   OPTIONAL "limit" (default 50)
+  - check_process_running    REQUIRES "process_name"  e.g. "chrome"
+  - check_file_exists        REQUIRES "filepath"   <-- NOT file_agent
+
+perception_agent  (visual capture):
+  - take_screenshot    OPTIONAL "save_path", OPTIONAL "window_title"
+                       If "window_title" is provided, the tool will
+                       find that window by substring match, bring it
+                       to focus, then capture only that window's area.
+                       Without it, captures the full screen.
 
 EXAMPLES:
 
@@ -194,6 +427,84 @@ Example 11: "calculate 25 * 4 + 100"
   ]
 }}
 
+Example 12: "what window is currently focused" or "what am I looking at"
+{{
+  "plan_id": "p012",
+  "description": "Get active window",
+  "tasks": [
+    {{"task_id": "T1", "agent": "state_agent", "tool": "get_active_window", "args": {{}}, "description": "Get active window", "depends_on": []}}
+  ]
+}}
+
+Example 13: "what windows do I have open" or "list my open windows"
+{{
+  "plan_id": "p013",
+  "description": "List open windows",
+  "tasks": [
+    {{"task_id": "T1", "agent": "state_agent", "tool": "list_open_windows", "args": {{}}, "description": "List visible windows", "depends_on": []}}
+  ]
+}}
+
+Example 14: "is chrome running"
+{{
+  "plan_id": "p014",
+  "description": "Check if Chrome is running",
+  "tasks": [
+    {{"task_id": "T1", "agent": "state_agent", "tool": "check_process_running", "args": {{"process_name": "chrome"}}, "description": "Check chrome", "depends_on": []}}
+  ]
+}}
+
+Example 15: "take a screenshot"
+{{
+  "plan_id": "p015",
+  "description": "Capture a screenshot",
+  "tasks": [
+    {{"task_id": "T1", "agent": "perception_agent", "tool": "take_screenshot", "args": {{}}, "description": "Take screenshot (auto-named)", "depends_on": []}}
+  ]
+}}
+
+Example 16: "take a screenshot and save it to Desktop/shot.png"
+{{
+  "plan_id": "p016",
+  "description": "Capture screenshot to specific path",
+  "tasks": [
+    {{"task_id": "T1", "agent": "perception_agent", "tool": "take_screenshot", "args": {{"save_path": "{self.desktop}/shot.png"}}, "description": "Take screenshot to Desktop", "depends_on": []}}
+  ]
+}}
+
+Example 17: "does the file report.txt exist on Desktop"
+{{
+  "plan_id": "p017",
+  "description": "Check file existence",
+  "tasks": [
+    {{"task_id": "T1", "agent": "state_agent", "tool": "check_file_exists", "args": {{"filepath": "{self.desktop}/report.txt"}}, "description": "Check file", "depends_on": []}}
+  ]
+}}
+
+Example 18: "delete the file shot.png from Desktop"
+Note: the "check first, then delete" pattern. check_file_exists is
+on state_agent, delete_file is on file_agent. Do NOT route
+check_file_exists to file_agent.
+{{
+  "plan_id": "p018",
+  "description": "Delete file with existence check",
+  "tasks": [
+    {{"task_id": "T1", "agent": "state_agent", "tool": "check_file_exists", "args": {{"filepath": "{self.desktop}/shot.png"}}, "description": "Check file exists", "depends_on": []}},
+    {{"task_id": "T2", "agent": "file_agent", "tool": "delete_file", "args": {{"filepath": "{self.desktop}/shot.png"}}, "description": "Delete file", "depends_on": ["T1"]}}
+  ]
+}}
+
+Example 19: "take a screenshot of the chrome window and save it to Desktop/chrome.png"
+Note: one task. "window_title" focuses the target window first, so
+the capture shows Chrome rather than the Synapse window.
+{{
+  "plan_id": "p019",
+  "description": "Screenshot of Chrome window",
+  "tasks": [
+    {{"task_id": "T1", "agent": "perception_agent", "tool": "take_screenshot", "args": {{"window_title": "chrome", "save_path": "{self.desktop}/chrome.png"}}, "description": "Capture chrome", "depends_on": []}}
+  ]
+}}
+
 RULES:
 1. ALWAYS include ALL required arguments for each tool
 2. For list_directory, ALWAYS include "directory" with FULL PATH
@@ -205,58 +516,31 @@ RULES:
 8. Create folder BEFORE creating files inside it
 9. Tasks with no dependencies can run in PARALLEL
 10. For greetings/simple questions, use generate_text
+11. For "is X running / open / focused / on screen" questions, prefer state_agent tools over filesystem tools
+12. For "what does the screen look like" / "capture screen" requests, use perception_agent.take_screenshot
+13. If the user asks for a screenshot of a specific window or app (e.g. "chrome window", "notepad", "the browser"), pass "window_title" so the tool focuses that window and captures only its area
+14. check_file_exists is a STATE tool (state_agent), NOT a filesystem tool - never route it to file_agent
 
 Now create a plan for: "{original_input}"
 
 Respond with ONLY valid JSON (no markdown, no explanation):"""
 
         response = self.think(prompt)
+        plan, err, raw = _parse_plan_response(response)
         
-        try:
-            # Try to extract JSON from response
-            match = re.search(r'\{[\s\S]*\}', response)
-            if match:
-                json_str = match.group()
-                
-                # Clean up common LLM JSON issues
-                # 1. Remove markdown code blocks
-                json_str = re.sub(r'```json\s*', '', json_str)
-                json_str = re.sub(r'```\s*', '', json_str)
-                
-                # 2. Fix Windows path backslashes - convert \\ to / in paths
-                # This handles C:\\Users\\... -> C:/Users/...
-                json_str = re.sub(r'([A-Za-z]):\\\\', r'\1:/', json_str)
-                json_str = re.sub(r'\\\\', '/', json_str)
-                
-                # 3. Fix single backslashes in paths (but not escape sequences)
-                # Handle cases like C:\Users -> C:/Users
-                json_str = re.sub(r'([A-Za-z]):\\([^\\"])', r'\1:/\2', json_str)
-                
-                # 4. Fix invalid escape sequences
-                # Replace \_ with _
-                json_str = json_str.replace('\\_', '_')
-                # Replace \: with :
-                json_str = json_str.replace('\\:', ':')
-                # Replace \( and \) with ( and )
-                json_str = json_str.replace('\\(', '(')
-                json_str = json_str.replace('\\)', ')')
-                
-                # 5. Fix escaped newlines that should be spaces in content
-                json_str = re.sub(r'(?<!\\)\\n', ' ', json_str)
-                
-                # 6. Remove any remaining invalid escape sequences
-                # Valid JSON escapes: \" \\ \/ \b \f \n \r \t \uXXXX
-                json_str = re.sub(r'\\([^"\\/bfnrtu])', r'\1', json_str)
-                
-                plan = json.loads(json_str)
-                plan["status"] = "created"
-                return {"success": True, "plan": plan}
-        except json.JSONDecodeError as e:
-            return {"success": False, "error": f"Invalid JSON: {e}", "raw": response}
-        except Exception as e:
-            return {"success": False, "error": str(e), "raw": response}
+        if plan is not None:
+            plan["status"] = "created"
+            return {"success": True, "plan": plan}
         
-        return {"success": False, "error": "No valid JSON found", "raw": response}
+        # Parse failed. Include a snippet of the raw LLM response so
+        # the caller can see exactly what the model returned - far
+        # more useful than a bare "Invalid JSON" error.
+        snippet = (raw or "")[:300]
+        return {
+            "success": False,
+            "error": f"{err}. LLM response (first 300 chars): {snippet!r}",
+            "raw": raw
+        }
     
     def create_dag(self, plan: Dict) -> DAG:
         """Convert a plan to a DAG for parallel execution"""

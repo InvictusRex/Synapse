@@ -244,11 +244,20 @@ class DAG:
             self.tasks[task_id].status = TaskStatus.COMPLETED
             self.tasks[task_id].result = result
     
-    def mark_failed(self, task_id: str, error: str):
-        """Mark a task as failed"""
+    def mark_failed(self, task_id: str, error: str, result: Dict[str, Any] = None):
+        """
+        Mark a task as failed.
+        
+        The `result` param is optional and stores the full tool return
+        dict (including flags like blocked/denied/requires_confirmation).
+        Callers that want to inspect WHY a task failed after the fact
+        need this; without it, task_states only carries an error string.
+        """
         if task_id in self.tasks:
             self.tasks[task_id].status = TaskStatus.FAILED
             self.tasks[task_id].error = error
+            if result is not None:
+                self.tasks[task_id].result = result
     
     def mark_running(self, task_id: str):
         """Mark a task as running"""

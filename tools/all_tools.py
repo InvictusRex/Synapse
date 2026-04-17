@@ -527,20 +527,32 @@ def register_all_tools():
     """Register all tools with the MCP server"""
     server = get_mcp_server()
     
+    # Phase 1 & 2: import observational tools. These registrations are
+    # kept in their own modules to keep this file manageable and to make
+    # it easy to disable them in environments without GUI libraries.
+    from tools.state_tools import register_state_tools
+    from tools.perception_tools import register_perception_tools
+    
     tools = [
         # Filesystem tools
         ToolDefinition("read_file", "Read content from a file", ToolCategory.FILESYSTEM,
                       read_file, ["filepath"]),
+        # write_file creates or overwrites but the path is always explicit -
+        # low-risk enough to not warrant a prompt on every run.
         ToolDefinition("write_file", "Write content to a file", ToolCategory.FILESYSTEM,
                       write_file, ["filepath", "content"]),
         ToolDefinition("create_folder", "Create a folder", ToolCategory.FILESYSTEM,
                       create_folder, ["folder_path"]),
         ToolDefinition("list_directory", "List directory contents", ToolCategory.FILESYSTEM,
                       list_directory, ["directory"]),
+        # Deletion is genuinely destructive -> always confirm.
         ToolDefinition("delete_file", "Delete a file", ToolCategory.FILESYSTEM,
-                      delete_file, ["filepath"]),
+                      delete_file, ["filepath"],
+                      requires_confirmation=True),
         ToolDefinition("delete_folder", "Delete a folder", ToolCategory.FILESYSTEM,
-                      delete_folder, ["folder_path"]),
+                      delete_folder, ["folder_path"],
+                      requires_confirmation=True),
+        # Move and copy don't delete data; they just create/relocate. No prompt.
         ToolDefinition("move_file", "Move a file or folder", ToolCategory.FILESYSTEM,
                       move_file, ["source", "destination"]),
         ToolDefinition("copy_file", "Copy a file or folder", ToolCategory.FILESYSTEM,
@@ -557,12 +569,15 @@ def register_all_tools():
         # Web tools
         ToolDefinition("fetch_webpage", "Fetch and extract webpage content", ToolCategory.WEB,
                       fetch_webpage, ["url"]),
+        # download_file writes to disk but the path is explicit - not sensitive.
         ToolDefinition("download_file", "Download a file from URL", ToolCategory.WEB,
                       download_file, ["url", "save_path"]),
         
         # System tools
+        # run_command can do ANYTHING (including "rm -rf /") -> always confirm.
         ToolDefinition("run_command", "Run a shell command", ToolCategory.SYSTEM,
-                      run_command, ["command"]),
+                      run_command, ["command"],
+                      requires_confirmation=True),
         ToolDefinition("get_cwd", "Get current working directory", ToolCategory.SYSTEM,
                       get_cwd, []),
         ToolDefinition("get_system_info", "Get system information", ToolCategory.SYSTEM,
@@ -592,4 +607,10 @@ def register_all_tools():
     ]
     
     server.register_tools(tools)
-    return len(tools)
+    
+    # Register observational tools from their own modules. Count them
+    # so the caller knows the total tool inventory.
+    state_count = register_state_tools(server)
+    perception_count = register_perception_tools(server)
+    
+    return len(tools) + state_count + perception_count

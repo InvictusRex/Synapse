@@ -81,23 +81,37 @@ class LLMPool:
                 self._priority.remove(name)
     
     def initialize_defaults(self):
-        """Initialize with default LLMs from environment"""
+        """
+        Initialize with default LLMs from environment.
+        
+        Priority order is read from config.LLM_PRIORITY. The first entry
+        in that list that has an API key available becomes the primary;
+        subsequent entries become fallbacks in order.
+        """
         groq_key = os.environ.get("GROQ_API_KEY", "")
         gemini_key = os.environ.get("GEMINI_API_KEY", "")
         
-        if groq_key:
-            try:
-                groq = create_groq_llm(groq_key)
-                self.register_llm("groq", groq, priority=0)
-            except Exception as e:
-                print(f"[LLMPool] Failed to init Groq: {e}")
+        # Read the configured priority order. Fall back to a safe default
+        # if config is unavailable for some reason (e.g. import loop).
+        try:
+            import config
+            priority_order = list(getattr(config, 'LLM_PRIORITY', ["gemini", "groq"]))
+        except Exception:
+            priority_order = ["gemini", "groq"]
         
-        if gemini_key:
-            try:
-                gemini = create_gemini_llm(gemini_key)
-                self.register_llm("gemini", gemini, priority=1)
-            except Exception as e:
-                print(f"[LLMPool] Failed to init Gemini: {e}")
+        # Register each provider at its configured priority index. This is
+        # the single source of truth - no more hardcoded priority numbers.
+        for idx, name in enumerate(priority_order):
+            if name == "groq" and groq_key:
+                try:
+                    self.register_llm("groq", create_groq_llm(groq_key), priority=idx)
+                except Exception as e:
+                    print(f"[LLMPool] Failed to init Groq: {e}")
+            elif name == "gemini" and gemini_key:
+                try:
+                    self.register_llm("gemini", create_gemini_llm(gemini_key), priority=idx)
+                except Exception as e:
+                    print(f"[LLMPool] Failed to init Gemini: {e}")
         
         if not self._llms:
             raise RuntimeError("No LLMs available. Set GROQ_API_KEY or GEMINI_API_KEY")

@@ -14,5 +14,11 @@ rich>=13.0.0
 python-dotenv>=1.0.0
 pandas>=1.5.0
 
-# Optional: System monitoring
-# psutil>=5.9.0
+# Phase 1 - State awareness
+psutil>=5.9.0
+pygetwindow>=0.0.9  ; platform_system != "Linux"
+# pygetwindow on Linux requires Xlib; skip on headless servers.
+
+# Phase 2 - Perception (screenshots)
+pyautogui>=0.9.54
+Pillow>=9.0.0

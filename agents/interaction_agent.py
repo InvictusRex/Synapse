@@ -66,13 +66,15 @@ JSON ONLY:"""
 
         response = self.think(prompt)
         
+        # Use the shared tolerant parser from planner_agent - same logic,
+        # same trailing-comma handling, same balanced-brace fallback.
         try:
-            match = re.search(r'\{[\s\S]*\}', response)
-            if match:
-                result = json.loads(match.group())
-                result["original_input"] = user_input
-                return {"success": True, "interpretation": result}
-        except:
+            from agents.planner_agent import _parse_plan_response
+            parsed, _err, _raw = _parse_plan_response(response)
+            if parsed is not None:
+                parsed["original_input"] = user_input
+                return {"success": True, "interpretation": parsed}
+        except Exception:
             pass
         
         # Fallback: basic interpretation

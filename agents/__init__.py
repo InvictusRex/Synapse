@@ -10,6 +10,8 @@ from agents.file_agent import FileAgent
 from agents.content_agent import ContentAgent
 from agents.web_agent import WebAgent
 from agents.system_agent import SystemAgent
+from agents.state_agent import StateAgent
+from agents.perception_agent import PerceptionAgent
 
 __all__ = [
     'BaseAgent', 'AgentConfig',
@@ -19,5 +21,7 @@ __all__ = [
     'FileAgent',
     'ContentAgent',
     'WebAgent',
-    'SystemAgent'
+    'SystemAgent',
+    'StateAgent',
+    'PerceptionAgent',
 ]

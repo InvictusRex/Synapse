@@ -16,6 +16,12 @@ class ToolCategory(Enum):
     SYSTEM = "system"
     DATA = "data"
     MEMORY = "memory"
+    # Phase 1 - State awareness: read-only observations of system state
+    # (active window, processes, file/process existence checks)
+    STATE = "state"
+    # Phase 2 - Perception: read-only observations of visual state
+    # (screenshots; future: OCR, element detection, vision-LLM queries)
+    PERCEPTION = "perception"
 
 
 @dataclass
@@ -27,6 +33,10 @@ class ToolDefinition:
     handler: Callable
     required_args: List[str]
     optional_args: List[str] = None
+    # Phase 0 - Safety: when True, the MCP server will consult the permission
+    # gate before executing this tool. Tools that modify filesystem state,
+    # drive the mouse/keyboard, or run arbitrary commands should set this.
+    requires_confirmation: bool = False
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -34,7 +44,8 @@ class ToolDefinition:
             "description": self.description,
             "category": self.category.value,
             "required": self.required_args,
-            "optional": self.optional_args or []
+            "optional": self.optional_args or [],
+            "requires_confirmation": self.requires_confirmation
         }
 
 
@@ -65,7 +76,48 @@ class MCPServer:
         self._execution_count = 0
         self._execution_log: List[Dict] = []
         self._lock = threading.Lock()
+        # Phase 0 - Safety: callback the CLI registers to prompt the user
+        # when a sensitive tool is about to execute. Signature:
+        #   callback(tool_name: str, args: Dict) -> bool   # True = approved
+        # If unset, sensitive tools fail safely (deny).
+        self._confirmation_callback: Optional[Callable] = None
         self._initialized = True
+    
+    def set_confirmation_callback(self, callback: Callable):
+        """Register a callback to be invoked when a sensitive tool needs confirmation."""
+        self._confirmation_callback = callback
+    
+    def _check_permission(self, tool_name: str, tool: ToolDefinition) -> str:
+        """
+        Consult the permission policy.
+        
+        Returns one of: 'allow', 'block', 'confirm'.
+        
+        Order of precedence:
+          1. SENSITIVE_TOOLS_BLOCK list wins over everything.
+          2. SENSITIVE_TOOLS_ALLOW list bypasses confirmation.
+          3. UNATTENDED_MODE bypasses confirmation (use with care).
+          4. requires_confirmation flag on the tool -> 'confirm'.
+          5. Otherwise -> 'allow'.
+        """
+        # Late import to avoid circular dependency at module load time.
+        try:
+            import config
+            block_list = getattr(config, 'SENSITIVE_TOOLS_BLOCK', [])
+            allow_list = getattr(config, 'SENSITIVE_TOOLS_ALLOW', [])
+            unattended = getattr(config, 'UNATTENDED_MODE', False)
+        except Exception:
+            block_list, allow_list, unattended = [], [], False
+        
+        if tool_name in block_list:
+            return 'block'
+        if tool_name in allow_list:
+            return 'allow'
+        if unattended:
+            return 'allow'
+        if tool.requires_confirmation:
+            return 'confirm'
+        return 'allow'
     
     def register_tool(self, tool: ToolDefinition):
         """Register a tool"""
@@ -106,6 +158,38 @@ class MCPServer:
         
         if not tool:
             return {"success": False, "error": f"Tool '{name}' not found"}
+        
+        # Phase 0 - Safety: permission gate for sensitive tools.
+        permission = self._check_permission(name, tool)
+        if permission == 'block':
+            return {
+                "success": False,
+                "error": f"Tool '{name}' is blocked by permissions policy",
+                "blocked": True
+            }
+        if permission == 'confirm':
+            if self._confirmation_callback is None:
+                # No way to ask the user -> fail safely.
+                return {
+                    "success": False,
+                    "error": (
+                        f"Tool '{name}' requires confirmation but no "
+                        "confirmation handler is configured. Either enable "
+                        "UNATTENDED_MODE, add the tool to SENSITIVE_TOOLS_ALLOW, "
+                        "or run through the interactive CLI."
+                    ),
+                    "requires_confirmation": True
+                }
+            try:
+                approved = bool(self._confirmation_callback(name, args))
+            except Exception as e:
+                return {"success": False, "error": f"Confirmation handler failed: {e}"}
+            if not approved:
+                return {
+                    "success": False,
+                    "error": f"User denied permission to run '{name}'",
+                    "denied": True
+                }
         
         # Validate required args
         for arg in tool.required_args:
